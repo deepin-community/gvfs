@@ -1,0 +1,89 @@
+From 8c7e79042d819304ea38408d0d90313eef7a3869
+From fc3e481634317f455e0c219de1f44b86d1dabeef
+From: Ondrej Holy <oholy@redhat.com>
+Date: Wed May 4 13:21:01 2022 +0200
+Subject: smb: Rework anonymous handling to avoid EINVAL
+---
+
+Index: gvfs-1.48.1.1/daemon/gvfsbackendsmb.c
+===================================================================
+--- gvfs-1.48.1.1.orig/daemon/gvfsbackendsmb.c
++++ gvfs-1.48.1.1/daemon/gvfsbackendsmb.c
+@@ -78,9 +78,7 @@ struct _GVfsBackendSmb
+   
+   GMountSource *mount_source; /* Only used/set during mount */
+   int mount_try;
+-  gboolean mount_try_again;
+   gboolean mount_cancelled;
+-  gboolean use_anonymous;
+ 	
+   gboolean password_in_keyring;
+   GPasswordSave password_save;
+@@ -203,25 +201,14 @@ auth_callback (SMBCCTX *context,
+       backend->user == NULL &&
+       backend->domain == NULL)
+     {
+-      /* Try again if kerberos login fails */
+-      backend->mount_try_again = TRUE;
+       g_debug ("auth_callback - kerberos pass\n");
+     }
+   else if (backend->mount_try == 1 &&
+            backend->user == NULL &&
+            backend->domain == NULL)
+     {
+-      /* Try again if ccache login fails */
+-      backend->mount_try_again = TRUE;
+       g_debug ("auth_callback - ccache pass\n");
+     }
+-  else if (backend->use_anonymous)
+-    {
+-      /* Try again if anonymous login fails */
+-      backend->use_anonymous = FALSE;
+-      backend->mount_try_again = TRUE;
+-      g_debug ("auth_callback - anonymous login pass\n");
+-    }
+   else
+     {
+       gboolean in_keyring = FALSE;
+@@ -301,13 +288,13 @@ auth_callback (SMBCCTX *context,
+ 	    }
+ 	}
+ 
+-      /* Try again if this fails */
+-      backend->mount_try_again = TRUE;
++      smbc_setOptionNoAutoAnonymousLogin (backend->smb_context,
++                                          !anonymous);
+ 
+       if (anonymous)
+         {
+-          backend->use_anonymous = TRUE;
+           backend->password_save = FALSE;
++          g_debug ("auth_callback - anonymous enabled\n");
+         }
+       else
+         {
+@@ -497,7 +484,6 @@ do_mount (GVfsBackend *backend,
+    */
+   do
+     {
+-      op_backend->mount_try_again = FALSE;
+       op_backend->mount_cancelled = FALSE;
+ 
+       g_debug ("do_mount - try #%d \n", op_backend->mount_try);
+@@ -535,15 +521,9 @@ do_mount (GVfsBackend *backend,
+           smbc_setOptionFallbackAfterKerberos (op_backend->smb_context, 1);
+         }
+ 
+-      /* If the AskPassword reply requested anonymous login, enable the
+-       * anonymous fallback and try again.
+-       */
+-      smbc_setOptionNoAutoAnonymousLogin (op_backend->smb_context,
+-                                          !op_backend->use_anonymous);
+-
+       op_backend->mount_try ++;
+     }
+-  while (op_backend->mount_try_again);
++  while (TRUE);
+   
+   g_free (uri);
+   

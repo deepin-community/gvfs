@@ -1,0 +1,44 @@
+From 747c7f6ea6c8b6a7ccd008bb47996ba7eb169bcc
+From: Ondrej Holy <oholy@redhat.com>
+Date: Mon Apr 11 10:54:04 2022 +0200
+Subject: smb: Ignore EINVAL for kerberos/ccache login
+---
+
+Index: gvfs-1.48.1/daemon/gvfsbackendsmb.c
+===================================================================
+--- gvfs-1.48.1.orig/daemon/gvfsbackendsmb.c
++++ gvfs-1.48.1/daemon/gvfsbackendsmb.c
+@@ -513,7 +513,13 @@ do_mount (GVfsBackend *backend,
+       if (res == 0)
+         break;
+ 
+-      if (op_backend->mount_cancelled || (errsv != EACCES && errsv != EPERM))
++      if (errsv == EINVAL && op_backend->mount_try <= 1 && op_backend->user == NULL)
++        {
++          /* EINVAL is "expected" when kerberos/ccache is misconfigured, see:
++           * https://gitlab.gnome.org/GNOME/gvfs/-/issues/611
++           */
++        }
++      else if (op_backend->mount_cancelled || (errsv != EACCES && errsv != EPERM))
+         {
+           g_debug ("do_mount - (errno != EPERM && errno != EACCES), cancelled = %d, breaking\n", op_backend->mount_cancelled);
+           break;
+Index: gvfs-1.48.1/daemon/gvfsbackendsmbbrowse.c
+===================================================================
+--- gvfs-1.48.1.orig/daemon/gvfsbackendsmbbrowse.c
++++ gvfs-1.48.1/daemon/gvfsbackendsmbbrowse.c
+@@ -967,7 +967,13 @@ do_mount (GVfsBackend *backend,
+              uri, op_backend->mount_try, dir, op_backend->mount_cancelled,
+              errsv, g_strerror (errsv));
+ 
+-      if (dir == NULL && 
++      if (errsv == EINVAL && op_backend->mount_try == 0 && op_backend->user == NULL)
++        {
++          /* EINVAL is "expected" when kerberos is misconfigured, see:
++           * https://gitlab.gnome.org/GNOME/gvfs/-/issues/611
++           */
++        }
++      else if (dir == NULL &&
+           (op_backend->mount_cancelled || (errsv != EPERM && errsv != EACCES)))
+         {
+           g_debug ("do_mount - (errno != EPERM && errno != EACCES), cancelled = %d, breaking\n", op_backend->mount_cancelled);
