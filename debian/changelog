@@ -1,3 +1,9 @@
+gvfs (1.48.1.4-deepin5) unstable; urgency=medium
+
+  * Cherry-pick commit to fix build with meson
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Fri, 30 Jun 2023 16:40:34 +0800
+
 gvfs (1.48.1.4-deepin4) unstable; urgency=high
 
   * update V6 6.0.2 baseline version  

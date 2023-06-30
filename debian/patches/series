@@ -10,3 +10,4 @@ Remove-version-from-polkit-gobject-dependency.patch
 fix-smb-backend-exit-after-ccache-login-failed.patch
 fix-smb-anonymous-login-failed.patch
 fix-gvfs-fuse-mount-point-incorrect.patch
+build-Remove-incorrect-i18n.merge_file-argument.patch
