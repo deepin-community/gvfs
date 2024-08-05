@@ -3,8 +3,10 @@ Depends: apache2,
          apache2-dev,
          dbus,
          gir1.2-umockdev-1.0,
+         libglib2.0-bin,
          openssh-client,
-         policykit-1,
+         polkitd,
+         procps,
          python3-dbus,
          python3-gi,
          python3-twisted,
@@ -12,4 +14,4 @@ Depends: apache2,
          sudo,
          umockdev (>= 0.2.9),
          @
-Restrictions: isolation-machine allow-stderr
+Restrictions: allow-stderr isolation-machine needs-sudo

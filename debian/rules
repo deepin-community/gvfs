@@ -1,11 +1,11 @@
 #!/usr/bin/make -f
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-export DEB_LDFLAGS_MAINT_APPEND = -Wl,-O1 -Wl,-z,defs -Wl,--as-needed
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,-O1 -Wl,-z,defs
 
 include /usr/share/dpkg/default.mk
 
-ifneq (,$(filter $(DEB_HOST_ARCH), hurd-i386 kfreebsd-i386 kfreebsd-amd64))
+ifneq (,$(filter $(DEB_HOST_ARCH), hurd-i386 hurd-amd64))
 	ADMIN_BACKEND=-Dadmin=false
 	SYSTEMD_FLAGS= \
 		-Dsystemduserunitdir=no \
@@ -17,41 +17,36 @@ ifneq (,$(filter $(DEB_HOST_ARCH), hurd-i386 kfreebsd-i386 kfreebsd-amd64))
 		-Dgphoto2=false \
 		-Dmtp=false \
 		-Dlibusb=false
-else
+	HURD_FLAGS = -Dafc=false -Dfuse=false -Dsmb=false -Dgcr=false
 	ADMIN_BACKEND=
+	HURD_FLAGS=
 	SYSTEMD_FLAGS=
 endif
 
-ifeq (hurd-i386, $(DEB_HOST_ARCH))
-	HURD_FLAGS = -Dafc=false -Dfuse=false -Dsmb=false
+# i386 is not a full architecture, especially on Ubuntu
+ifeq (i386, $(DEB_HOST_ARCH))
+        GOA_BACKEND = -Dafc=false -Dgoa=false -Dgoogle=false -Donedrive=false
 endif
 
-ifeq (yes,$(shell dpkg-vendor --derives-from Ubuntu && echo yes))
+ifeq ($(shell dpkg-vendor --query vendor),Ubuntu)
         BLURAY_BACKEND = -Dbluray=false
 endif
 
+
+
 %:
-	dh $@ --with gnome
+	dh $@
 
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-Dman=true \
+		-Ddeprecated_apis=false \
 		-Dprivileged_group=sudo \
 		$(ADMIN_BACKEND) \
 		$(BLURAY_BACKEND) \
+		$(GOA_BACKEND) \
 		$(SYSTEMD_FLAGS) \
 		$(HURD_FLAGS)
-
-override_dh_auto_build:
-	dh_auto_build
-	dh_auto_build --buildsystem=makefile -- -C debian/extra
-
-override_dh_auto_clean:
-	dh_auto_clean
-	make -C debian/extra clean
-
-override_dh_strip:
-	dh_strip --dbgsym-migration='gvfs-dbg (<< 1.28.0-1~)'
 
 override_dh_link-arch:
 	dh_link -a
@@ -64,16 +59,6 @@ override_dh_install:
 	dh_install
 	rm -f debian/gvfs-bin/usr/bin/gvfs-less.xml
 
-override_dh_installman:
-	# debian/gvfs-bin.install contains debian/gvfs-* and we don't want this
-	# to match the manpages
-	dh_auto_build --buildsystem=makefile -- -C debian/extra all-man
-	dh_installman
-	dh_auto_build --buildsystem=makefile -- -C debian/extra clean-man
-
-override_dh_missing:
-	dh_missing --fail-missing
-
 override_dh_makeshlibs:
 	dh_makeshlibs --no-act
 
@@ -82,3 +67,16 @@ override_dh_shlibdeps:
 
 override_dh_auto_test:
 	echo "Skipping testsuite as it's better run as an autopkgtest with machine isolation"
+
+# wsdd is in Ubuntu "universe"
+# wsdd is not working appropriately yet
+override_dh_gencontrol:
+#ifeq ($(shell dpkg-vendor --query vendor),Ubuntu)
+	dh_gencontrol -- \
+		-Vwsdd:Suggests='wsdd'
+#else
+#	dh_gencontrol -- \
+#		-Vwsdd:Recommends='wsdd'
+#endif
+
+override_dh_gnome_clean:

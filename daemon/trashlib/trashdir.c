@@ -163,10 +163,27 @@ trash_dir_changed (GFileMonitor      *monitor,
   TrashDir *dir = user_data;
 
   if (event_type == G_FILE_MONITOR_EVENT_CREATED)
-    trash_root_add_item (dir->root, file, dir->topdir, dir->is_homedir);
+    {
+      dir->items = g_slist_insert_sorted (dir->items,
+                                          g_object_ref (file),
+                                          (GCompareFunc) compare_basename);
+      trash_root_add_item (dir->root, file, dir->topdir, dir->is_homedir);
+    }
 
   else if (event_type == G_FILE_MONITOR_EVENT_DELETED)
-    trash_root_remove_item (dir->root, file, dir->is_homedir);
+    {
+      GSList *node;
+
+      node = g_slist_find_custom (dir->items,
+                                  file,
+                                  (GCompareFunc) compare_basename);
+      if (node)
+        {
+          g_object_unref (node->data);
+          dir->items = g_slist_delete_link (dir->items, node);
+        }
+      trash_root_remove_item (dir->root, file, dir->is_homedir);
+    }
 
   else if (event_type == G_FILE_MONITOR_EVENT_PRE_UNMOUNT ||
            event_type == G_FILE_MONITOR_EVENT_UNMOUNTED ||
@@ -356,8 +373,6 @@ trash_dir_rescan (TrashDir *dir)
     trash_dir_empty (dir);
 }
 
-static trash_dir_ui_hook ui_hook;
-
 TrashDir *
 trash_dir_new (TrashRoot  *root,
                gboolean    watching,
@@ -394,18 +409,9 @@ trash_dir_new (TrashRoot  *root,
   else
     dir->watch = NULL;
 
-  if (ui_hook)
-    ui_hook (dir, dir->directory);
-
   g_free (rel);
 
   return dir;
-}
-
-void
-trash_dir_set_ui_hook (trash_dir_ui_hook _ui_hook)
-{
-  ui_hook = _ui_hook;
 }
 
 void

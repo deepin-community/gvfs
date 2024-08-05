@@ -32,6 +32,7 @@
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
+#include <locale.h>
 
 #include <glib.h>
 #include <glib/gi18n.h>
@@ -1090,6 +1091,9 @@ open_common (const gchar *path, struct fuse_file_info *fi, GFile *file, int outp
     fi->nonseekable = !g_seekable_can_seek (G_SEEKABLE (fh->stream));
 
   g_mutex_unlock (&fh->mutex);
+
+  if (result < 0)
+    file_handle_unref (fh);
 
   /* The added reference to the file handle is released in vfs_release() */
   return result;
@@ -2555,6 +2559,8 @@ main (gint argc, gchar *argv [])
   int res;
   struct fuse_cmdline_opts opts;
   struct fuse_args args = FUSE_ARGS_INIT (argc, argv);
+
+  setlocale (LC_ALL, "");
 
   if (fuse_opt_parse (&args, NULL, NULL, NULL) == -1)
     return 1;

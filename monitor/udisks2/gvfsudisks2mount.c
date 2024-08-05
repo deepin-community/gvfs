@@ -74,7 +74,9 @@ struct _GVfsUDisks2Mount
   gchar *mount_entry_name;
   gchar *mount_entry_fs_type;
 
+#ifdef HAVE_BURN
   gboolean is_burn_mount;
+#endif
 
   GIcon *autorun_icon;
   gboolean searched_for_autorun;
@@ -345,6 +347,7 @@ gvfs_udisks2_mount_new (GVfsUDisks2VolumeMonitor *monitor,
       mount->mount_path = g_strdup (g_unix_mount_get_mount_path (mount_entry));
       mount->root = g_file_new_for_path (mount->mount_path);
     }
+#ifdef HAVE_BURN
   else
     {
       /* burn:/// mount (the only mounts we support with mount_entry == NULL) */
@@ -353,6 +356,7 @@ gvfs_udisks2_mount_new (GVfsUDisks2VolumeMonitor *monitor,
       mount->root = g_file_new_for_uri ("burn:///");
       mount->is_burn_mount = TRUE;
     }
+#endif
 
   /* need to set the volume only when the mount is fully constructed */
   mount->volume = volume;
@@ -568,11 +572,9 @@ unmount_operation_is_stop (GMountOperation *op)
 }
 
 static void
-umount_completed (GObject    *object,
-                  GParamSpec *pspec,
-                  gpointer    user_data)
+umount_completed (gpointer user_data)
 {
-  GTask *task = G_TASK (object);
+  GTask *task = G_TASK (user_data);
   UnmountData *data = g_task_get_task_data (task);
 
   if (data->mount_operation &&
@@ -813,7 +815,15 @@ lock_cb (GObject       *source_object,
                                           &error))
     g_task_return_error (task, error);
   else
-    g_task_return_boolean (task, TRUE);
+    {
+      /* Call the unmount_completed function explicitly here as it is too
+       * late to emit show-unmount-progress signal from the notify::completed
+       * callback.
+       */
+      umount_completed (task);
+
+      g_task_return_boolean (task, TRUE);
+    }
 
   g_object_unref (task);
 }
@@ -859,6 +869,12 @@ unmount_cb (GObject       *source_object,
           return;
         }
 
+      /* Call the unmount_completed function explicitly here as it is too
+       * late to emit show-unmount-progress signal from the notify::completed
+       * callback.
+       */
+      umount_completed (task);
+
       g_task_return_boolean (task, TRUE);
       g_object_unref (task);
     }
@@ -893,6 +909,13 @@ umount_command_cb (GObject       *source_object,
   if (WIFEXITED (exit_status) && WEXITSTATUS (exit_status) == 0)
     {
       gvfs_udisks2_volume_monitor_update (mount->monitor);
+
+      /* Call the unmount_completed function explicitly here as it is too
+       * late to emit show-unmount-progress signal from the notify::completed
+       * callback.
+       */
+      umount_completed (task);
+
       g_task_return_boolean (task, TRUE);
       g_object_unref (task);
       goto out;
@@ -928,22 +951,23 @@ unmount_do (GTask       *task,
     {
       gvfs_udisks2_unmount_notify_start (data->mount_operation,
                                          G_MOUNT (g_task_get_source_object (task)), NULL);
-      g_signal_connect (task, "notify::completed", G_CALLBACK (umount_completed), NULL);
+      g_signal_connect_swapped (task, "notify::completed", G_CALLBACK (umount_completed), task);
     }
 
   /* Use the umount(8) command if there is no block device / filesystem */
   if (data->filesystem == NULL)
     {
-      gchar *escaped_mount_path;
-      escaped_mount_path = g_strescape (mount->mount_path, NULL);
+      gchar *quoted_path;
+
+      quoted_path = g_shell_quote (mount->mount_path);
       gvfs_udisks2_utils_spawn (10, /* timeout in seconds */
                                 g_task_get_cancellable (task),
                                 umount_command_cb,
                                 task,
-                                "umount %s \"%s\"",
+                                "umount %s %s",
                                 force ? "-l " : "",
-                                escaped_mount_path);
-      g_free (escaped_mount_path);
+                                quoted_path);
+      g_free (quoted_path);
       goto out;
     }
 
@@ -996,6 +1020,7 @@ gvfs_udisks2_mount_unmount_with_operation (GMount              *_mount,
 
   g_task_set_task_data (task, data, (GDestroyNotify)unmount_data_free);
 
+#ifdef HAVE_BURN
   if (mount->is_burn_mount)
     {
       /* burn mounts are really never mounted so complete successfully immediately */
@@ -1003,6 +1028,7 @@ gvfs_udisks2_mount_unmount_with_operation (GMount              *_mount,
       g_object_unref (task);
       return;
     }
+#endif
 
   block = NULL;
   if (mount->volume != NULL)
@@ -1175,6 +1201,7 @@ gvfs_udisks2_mount_guess_content_type_sync (GMount        *_mount,
 
   p = g_ptr_array_new ();
 
+#ifdef HAVE_BURN
   /* doesn't make sense to probe blank discs - look at the disc type instead */
   if (mount->is_burn_mount)
     {
@@ -1199,6 +1226,7 @@ gvfs_udisks2_mount_guess_content_type_sync (GMount        *_mount,
         }
     }
   else
+#endif
     {
       /* sniff content type */
       x_content_types = g_content_type_guess_for_tree (mount->root);

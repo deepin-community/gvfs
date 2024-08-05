@@ -1,3 +1,142 @@
+Major changes in 1.54.2
+=======================
+* ftp: Change cwd to root before renaming to prevent failures (rong wang)
+* udisks2: Ignore autofs mounts to prevent duplicated entries (Ondrej Holy)
+* ftp: Use timegm instead of mktime to not shift dates by timezone (Ondrej Holy)
+* ftp: Preserve mtime when copying to local (Ondrej Holy)
+* build: Add deprecated_apis option to control installation of headers (Ondrej Holy)
+* dav: Disable query_info_on_read method to fix mtime preservation (Ondrej Holy)
+* network: Disable usage of smbbrowse backend by default (Ondrej Holy)
+* smbbrowse: Don't enforce NT1 to fix mounting in certain cases (Ondrej Holy)
+* onedrive: Fix various memory leaks (Jan-Michael Brummer)
+* build: Disable burn backend by default (Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.54.1
+=======================
+* network: Request content-type attribute to suppress critical errors (Ondrej Holy)
+* metadata: Check g_stat result to avoid using of uninitialized value (Ondrej Holy)
+* ftp: Fix data connection to IPv6 link-local address (Ben Wolsieffer)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.54.0
+=======================
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.53.91
+========================
+* onedrive: Fix several issues (Jan-Michael Brummer)
+* wsdd: List just devices of pub:Computer type to filter out unwanted devices (Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.53.90
+========================
+* daemon: Add OneDrive support based on msgraph library (Jan-Michael Brummer)
+* client: Reduce synchronous metadata methods calls to improve performance (Corey Berla)
+* network: Provide standard::content-type and access::can-rename attributes (António Fernandes)
+* build: Fix unknown arguments error on systems that don't use GNU C library (Ondrej Holy)
+* udisks2: Fix unmounting of mount paths that contain non-ASCII characters (Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.53.1
+=======================
+* daemon: Add WS-Discovery support based on wsdd daemon (Ondrej Holy)
+* network: Hide Windows Network folder and show the servers merged by default (Ondrej Holy)
+* network: Various other fixes and enhancements (Ondrej Holy)
+* daemon: Port to gcr4 (Ondrej Holy)
+* smb: Fix livelock when mounting share without enough permissions (Ondrej Holy)
+* smb: Fix moving files across filesystem boundaries (Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.52.1
+=======================
+* client: Prevent returning invalid mount cache entries (rong wang)
+* dav: Fix authentication issues when DNS-SD URIs are used (Ondrej Holy)
+* nfs: Fix IPv6 URI handling (Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.52.0
+=======================
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.51.91
+========================
+* sftp/ftp: Ensure that is-symlink is always set to avoid warnings (Sébastien Noel)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.51.90
+========================
+* Fix various memory leaks (wang xiaomeng)
+* udisks2: Disconnect signal handlers to fix crashes when unmounting (Ondrej Holy)
+* fuse: Include missing locale.h header (Ondrej Holy)
+* Some other fixes and improvements (Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.51.1
+=======================
+* trash: Run blocking methods on a thread to avoid hangs (Ondrej Holy)
+* smbbrowse: Fix empty device listing after unrelated mount failure (Ondrej Holy)
+* udisks: Fix missing unmount notifications (Ondrej Holy)
+* trash: Fix nfs4 and cifs monitoring (re2zero)
+* smb: Allow renaming a file to the same name with a different case (Corey Berla)
+* mtp: Add support for incremental enumeration (re2zero)
+* mtp: Emit delete event on device disconnection (António Fernandes)
+* trash: Fix wrongly reported item-count (rong wang)
+* Some other fixes and improvements (Matt Turner, Sebastien Bacher, Simon McVittie, wangrong, Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.50.4
+=======================
+* dav: Prevent usage of NULL for nonexistent source file (Ondrej Holy)
+* client: Fix copy/move operation from/to Flatpak sandbox (Ondrej Holy)
+* http: Report original sizes regardless of compression usage (Lucas Chollet)
+* Fix string comparison on various places (Sergio Costas Rodriguez)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.50.3
+=======================
+* dav: Prevent usage of NULL when user is not specified (Ondrej Holy)
+* ftp: Fix hangs when the connection is released (wangrong)
+* fuse: Decrease file handle reference when open file fail (wangrong)
+* sftp: PATH-expand the ssh client (Alex Stewart)
+* test: Several smaller enhancements (Sébastien Bacher)
+* backend: Add support for xx-large and x-large thumbnails (Ondrej Holy)
+* goa: Prevent automounts when resuming from suspension (Ondrej Holy)
+* Translation updates (GNOME Translation Project contributors)
+
+Major changes in 1.50.2
+=======================
+* smb: Rework anonymous handling to avoid EINVAL (Ondrej Holy)
+* http: Unescape prefix to fix handling of encoded URIs (Ondrej Holy)
+* build: Fix build without Avahi support (Ondrej Holy)
+
+Major changes in 1.50.1
+=======================
+* dav: Drop user from URI as a workaround for Nextcloud bug (Ondrej Holy)
+* dav: Port DNS-SD resolver to async API to fix hangs when mounting (Ondrej Holy)
+* smb: Ignore EINVAL for kerberos/ccache login (Ondrej Holy)
+* dav: Rewrite to libsoup async API to fix crashes (Daniel Kolesa)
+* dav: Do not lose userinfo when copying URIs (Daniel Kolesa)
+
+Major changes in 1.50.0
+=======================
+* Translation updates
+
+Major changes in 1.49.90
+========================
+* http/dav: Port to libsoup3 (Daniel Kolesa)
+* http: Do not silently accept invalid certificates (Daniel Kolesa)
+* build: Remove incorrect i18n.merge_file argument to fix build (Ondrej Holy)
+* Translation updates
+
+Major changes in 1.49.1
+=======================
+* sftp: Adapt on new OpenSSH password prompts
+* build: Set of improvements for meson
+* Add PartOf=graphical-session.target to all systemd units
+* Move systemd services to session slice
+* Translation updates
+
 Major changes in 1.48.1
 =======================
 * build: Use install prefix in systemd files paths

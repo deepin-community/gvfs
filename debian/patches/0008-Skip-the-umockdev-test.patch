@@ -12,10 +12,10 @@ Bug-Upstream: https://bugzilla.gnome.org/show_bug.cgi?id=794488
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/test/gvfs-test b/test/gvfs-test
-index 8beb726..eafa3de 100755
+index ea5739c..196deec 100755
 --- a/test/gvfs-test
 +++ b/test/gvfs-test
-@@ -1725,8 +1725,9 @@ class Trash(GvfsTestCase):
+@@ -1728,8 +1728,9 @@ class Trash(GvfsTestCase):
              self.assertTrue(os.path.exists(self.my_file))
  
  

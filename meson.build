@@ -1,9 +1,12 @@
 project(
   'gvfs', 'c',
-  version: '1.48.1',
+  version: '1.54.2',
   license: 'LGPL2+',
-  default_options: 'buildtype=debugoptimized',
-  meson_version: '>= 0.53.0',
+  default_options: [
+    'buildtype=debugoptimized',
+    'warning_level=1',
+  ],
+  meson_version: '>= 0.57.0',
 )
 
 gvfs_name = meson.project_name()
@@ -44,16 +47,16 @@ cc = meson.get_compiler('c')
 config_h = configuration_data()
 
 # defines
-set_defines = [
+set_defines = {
   # package
-  ['PACKAGE_STRING', '@0@ @1@'.format(gvfs_name, gvfs_version)],
-  ['VERSION', gvfs_version],
+  'PACKAGE_STRING': '@0@ @1@'.format(gvfs_name, gvfs_version),
+  'VERSION': gvfs_version,
   # i18n
-  ['GETTEXT_PACKAGE', gvfs_name],
-]
+  'GETTEXT_PACKAGE': gvfs_name,
+}
 
-foreach define: set_defines
-  config_h.set_quoted(define[0], define[1])
+foreach define, value: set_defines
+  config_h.set_quoted(define, value)
 endforeach
 
 # Globally define_GNU_SOURCE and therefore enable the GNU extensions
@@ -65,14 +68,14 @@ have_socketpair = cc.has_function('socketpair')
 socket_deps = []
 
 if not have_socketpair
-  socket_dep = cc.find_library(
-    'socket',
-    has_function: 'socketpair',
-    required: false,
-  )
-  socket_deps += socket_dep
-  have_socketpair = socket_dep.found()
+  socket_dep = cc.find_library('socket', required: false)
+  have_socketpair = socket_dep.found() and cc.has_function('socketpair', dependencies: socket_dep)
+
+  if have_socketpair
+    socket_deps += socket_dep
+  endif
 endif
+
 config_h.set('HAVE_SOCKETPAIR', have_socketpair,
              description: 'Define if you have the socketpair function.')
 
@@ -179,17 +182,17 @@ foreach name: ['mkdev', 'sysmacros']
 endforeach
 
 # types
-check_types = [
+check_types = {
   # type, fallback type
-  ['gid_t', 'int'],
-  ['pid_t', 'int'],
-  ['size_t', 'unsigned int'],
-  ['uid_t', 'int'],
-]
+  'gid_t': 'int',
+  'pid_t': 'int',
+  'size_t': 'unsigned int',
+  'uid_t': 'int',
+}
 
-foreach type: check_types
-  if not cc.has_type(type[0], prefix: '#include<sys/types.h>')
-    config_h.set(type[0], type[1])
+foreach type, value: check_types
+  if not cc.has_type(type, prefix: '#include<sys/types.h>')
+    config_h.set(type, value)
   endif
 endforeach
 
@@ -231,7 +234,7 @@ have_version_script = cc.has_link_argument('@0@,@1@'.format(version_script_ldfla
 
 gio_dep = dependency('gio-2.0')
 gio_unix_dep = dependency('gio-unix-2.0')
-glib_dep = dependency('glib-2.0', version: '>= 2.65.1')
+glib_dep = dependency('glib-2.0', version: '>= 2.70.0')
 gobject_dep = dependency('gobject-2.0')
 gsettings_desktop_schemas_dep = dependency('gsettings-desktop-schemas', version: '>= 3.33.0')
 
@@ -249,23 +252,23 @@ endif
 config_h.set('HAVE_GCRYPT', enable_gcrypt)
 
 # *** Check for dbus service dir ***
-dbus_session_bus_services_dir = dependency('dbus-1').get_pkgconfig_variable(
-  'session_bus_services_dir',
-  define_variable: ['datadir', gvfs_prefix / gvfs_datadir],
+dbus_session_bus_services_dir = dependency('dbus-1').get_variable(
+  pkgconfig: 'session_bus_services_dir',
+  pkgconfig_define: ['datadir', gvfs_prefix / gvfs_datadir],
 )
 
 dbus_service_in = files('dbus.service.in')
 
 # *** Check for giomoduledir and schemasdir ***
-gio_giomoduledir = gio_dep.get_pkgconfig_variable(
-  'giomoduledir',
-  define_variable: ['libdir', gvfs_prefix / gvfs_libdir],
+gio_giomoduledir = gio_dep.get_variable(
+  pkgconfig: 'giomoduledir',
+  pkgconfig_define: ['libdir', gvfs_prefix / gvfs_libdir],
 )
 
-gio_schemasdir = gio_dep.get_pkgconfig_variable(
-  'schemasdir',
-  define_variable: ['datadir', gvfs_prefix / gvfs_datadir],
-  default: gvfs_prefix / gvfs_datadir / 'glib-2.0/schemas',
+gio_schemasdir = gio_dep.get_variable(
+  pkgconfig: 'schemasdir',
+  pkgconfig_define: ['datadir', gvfs_prefix / gvfs_datadir],
+  default_value: gvfs_prefix / gvfs_datadir / 'glib-2.0/schemas',
 )
 
 # *** Check for systemd options ***
@@ -281,12 +284,12 @@ if install_systemd_systemduserunitdir or install_systemd_tmpfilesdir
 
     if install_systemd_systemduserunitdir and systemd_systemduserunitdir == ''
       assert(systemd_dep.found(), 'systemd required but not found, please provide a valid systemd user unit dir or disable it')
-      systemd_systemduserunitdir = systemd_dep.get_pkgconfig_variable('systemduserunitdir', define_variable: ['prefix', gvfs_prefix])
+      systemd_systemduserunitdir = systemd_dep.get_variable(pkgconfig: 'systemduserunitdir', pkgconfig_define: ['prefix', gvfs_prefix])
     endif
 
     if install_systemd_tmpfilesdir and systemd_tmpfilesdir == ''
       assert(systemd_dep.found(), 'systemd not found, if you use opentmpfiles please provide a valid systemd user unit dir or disable it')
-      systemd_tmpfilesdir = systemd_dep.get_pkgconfig_variable('tmpfilesdir', define_variable: ['prefix', gvfs_prefix])
+      systemd_tmpfilesdir = systemd_dep.get_variable(pkgconfig: 'tmpfilesdir', pkgconfig_define: ['prefix', gvfs_prefix])
     endif
   endif
 endif
@@ -294,11 +297,12 @@ endif
 # *** Check for gcr ***
 enable_gcr = get_option('gcr')
 if enable_gcr
-  gcr_dep = dependency('gcr-base-3')
+  gcr_dep = dependency('gcr-4')
 endif
 config_h.set('HAVE_GCR', enable_gcr)
 
 # *** Check if we should build with admin backend ***
+privileged_group = get_option('privileged_group')
 enable_admin = get_option('admin')
 if enable_admin
   libcap_dep = dependency('libcap')
@@ -309,7 +313,7 @@ endif
 enable_http = get_option('http')
 if enable_http
   assert(have_libxml, 'http required but libxml-2.0 not found')
-  libsoup_dep = dependency('libsoup-2.4', version: '>= 2.58.0')
+  libsoup_dep = dependency('libsoup-3.0', version: '>= 3.0.0')
 endif
 
 # *** Check if we should build with DNS-SD backend ***
@@ -394,8 +398,6 @@ config_h.set10('HAVE_LIBUSB', enable_libusb)
 enable_samba = get_option('smb')
 if enable_samba
   smbclient_dep = dependency('smbclient')
-
-  config_h.set('HAVE_SMBC_SETOPTIONPROTOCOLS', cc.has_function('smbc_setOptionProtocols', dependencies: smbclient_dep))
   config_h.set('HAVE_SMBC_READDIRPLUS2', cc.has_function('smbc_readdirplus2', dependencies: smbclient_dep))
 endif
 
@@ -412,6 +414,8 @@ if enable_cdda
 
   libcdio_paranoia_dep = dependency('libcdio_paranoia', version: '>= 0.78.2')
   config_h.set('HAVE_PARANOIA_NEW_INCLUDES', cc.has_header('cdio/paranoia/paranoia.h', dependencies: libcdio_paranoia_dep))
+
+  config_h.set('HAVE_CDDA', enable_cdda)
 endif
 
 # *** Check if we should build with Google backend ***
@@ -420,6 +424,14 @@ if enable_google
   assert(enable_goa, 'Google backend requested but GOA is required')
 
   libgdata_dep = dependency('libgdata', version: '>= 0.18.0')
+endif
+
+# *** Check if we should build with OneDrive backend ***
+enable_onedrive = get_option('onedrive')
+if enable_onedrive
+  assert(enable_goa, 'OneDrive backend requested but GOA is required')
+
+  msgraph_dep = dependency('msgraph-0.1')
 endif
 
 # *** Check for gphoto2 ***
@@ -439,7 +451,7 @@ if enable_mtp
   assert(enable_gudev, 'libmtp requested but gudev is required')
 
   libmtp_dep = dependency('libmtp', version: '>= 1.1.12')
-  foreach version: ['1.1.15']
+  foreach version: ['1.1.15', '1.1.21']
     config_h.set10('HAVE_LIBMTP_' + version.underscorify(), libmtp_dep.version().version_compare('>= ' + version))
   endforeach
 endif
@@ -456,12 +468,16 @@ endif
 
 # *** SFTP backend ***
 enable_sftp = get_option('sftp')
-if enable_sftp
-  ssh = find_program('ssh', required: false)
-  assert(ssh.found(), 'SFTP backend requested but a ssh client is required')
-endif
+
+# *** WSDD backend ***
+enable_wsdd = get_option('wsdd')
+
+# *** burn backend ***
+enable_burn = get_option('burn')
+config_h.set('HAVE_BURN', enable_burn)
 
 # *** Enable development utils ***
+enable_deprecated_apis = get_option('deprecated_apis')
 enable_devel_utils = get_option('devel_utils')
 enable_installed_tests = get_option('installed_tests')
 
@@ -484,22 +500,23 @@ configure_file(
   configuration: config_h,
 )
 
-meson.add_install_script(
-  'meson_post_install.py',
-  gio_schemasdir,
-  gio_giomoduledir,
+gnome.post_install(
+  glib_compile_schemas: true,
+  gio_querymodules: gio_giomoduledir,
 )
 
 summary({
   'systemduserunitdir': systemd_systemduserunitdir,
   'tmpfilesdir': systemd_tmpfilesdir,
-}, section: 'Directories')
+  'privileged_group': privileged_group,
+}, section: 'Configuration')
 
 summary({
   'admin': enable_admin,
   'afc': enable_afc,
   'afp': enable_afp,
   'archive': enable_archive,
+  'burn': enable_burn,
   'cdda': enable_cdda,
   'dnssd': enable_dnssd,
   'goa': enable_goa,
@@ -508,9 +525,11 @@ summary({
   'http': enable_http,
   'mtp': enable_mtp,
   'nfs': enable_nfs,
+  'onedrive': enable_onedrive,
   'sftp': enable_sftp,
   'smb': enable_samba,
   'udisks2': enable_udisks2,
+  'wsdd': enable_wsdd,
 }, section: 'Backends')
 
 summary({
@@ -525,6 +544,7 @@ summary({
 }, section: 'Dependencies')
 
 summary({
+  'deprecated_apis': enable_deprecated_apis,
   'devel_utils': enable_devel_utils,
   'installed_tests': enable_installed_tests,
   'man': enable_man,

@@ -13,7 +13,7 @@ Forwarded: https://bugzilla.gnome.org/show_bug.cgi?id=794487
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/test/gvfs-test b/test/gvfs-test
-index eafa3de..b8929cc 100755
+index 196deec..876ebde 100755
 --- a/test/gvfs-test
 +++ b/test/gvfs-test
 @@ -176,7 +176,7 @@ class GvfsTestCase(unittest.TestCase):

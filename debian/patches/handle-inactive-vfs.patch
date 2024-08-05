@@ -11,10 +11,10 @@ Bug-Ubuntu: LP #832533
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/client/gdaemonvfs.c b/client/gdaemonvfs.c
-index bae13eb..e3fbd8a 100644
+index 199e50a..d889284 100644
 --- a/client/gdaemonvfs.c
 +++ b/client/gdaemonvfs.c
-@@ -1434,7 +1434,7 @@ g_daemon_vfs_deserialize_icon (GVfs     *vfs,
+@@ -1436,7 +1436,7 @@ g_daemon_vfs_deserialize_icon (GVfs     *vfs,
  GDBusConnection *
  _g_daemon_vfs_get_async_bus (void)
  {
