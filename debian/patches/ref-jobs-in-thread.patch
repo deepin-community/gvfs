@@ -39,10 +39,10 @@ index c0c26da..fa490f6 100644
  }
  
 diff --git a/daemon/gvfsdaemon.c b/daemon/gvfsdaemon.c
-index a6d6236..6b4564b 100644
+index f659041..7042646 100644
 --- a/daemon/gvfsdaemon.c
 +++ b/daemon/gvfsdaemon.c
-@@ -201,6 +201,7 @@ job_handler_callback (gpointer       data,
+@@ -204,6 +204,7 @@ job_handler_callback (gpointer       data,
    GVfsJob *job = G_VFS_JOB (data);
  
    g_vfs_job_run (job);
@@ -50,7 +50,7 @@ index a6d6236..6b4564b 100644
  }
  
  static void
-@@ -640,7 +641,8 @@ g_vfs_daemon_queue_job (GVfsDaemon *daemon,
+@@ -643,7 +644,8 @@ g_vfs_daemon_queue_job (GVfsDaemon *daemon,
    if (!g_vfs_job_try (job))
      {
        /* Couldn't finish / run async, queue worker thread */
@@ -60,7 +60,7 @@ index a6d6236..6b4564b 100644
      }
  }
  
-@@ -1044,7 +1046,8 @@ void
+@@ -1047,7 +1049,8 @@ void
  g_vfs_daemon_run_job_in_thread (GVfsDaemon *daemon,
  				GVfsJob    *job)
  {

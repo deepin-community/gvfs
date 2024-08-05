@@ -1,32 +1,255 @@
-gvfs (1.48.1.4-deepin5) unstable; urgency=medium
+gvfs (1.54.2-2) unstable; urgency=medium
 
-  * Cherry-pick commit to fix build with meson
+  * Stop building the afc backend on i386
 
- -- Tianyu Chen <sweetyfish@deepin.org>  Fri, 30 Jun 2023 16:40:34 +0800
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 31 Jul 2024 14:24:14 -0400
 
-gvfs (1.48.1.4-deepin4) unstable; urgency=high
+gvfs (1.54.2-1) unstable; urgency=medium
 
-  * update V6 6.0.2 baseline version  
+  * New upstream release
+  * Explicitly disable deprecated APIs (this happens by default with gvfs 1.55)
+  * gvfs-daemons.install: burn backend is no longer provided
 
- -- lvwujun <lvwujun@uniontech.com>  Wed, 14 Sep 2022 14:20:58 +0800
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 28 Jun 2024 09:53:55 -0400
 
-gvfs (1.48.1.3-deepin3) unstable; urgency=high
+gvfs (1.54.1-1) unstable; urgency=medium
 
-  * fix gvfs fuse mount point incorrect
+  * New upstream release
+  * Bump Standards Version to 4.7.0
 
- -- wangrong <wangrong@uniontech.com>  Mon, 05 Sep 2022 15:32:34 +0800
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 29 May 2024 11:11:38 -0400
 
-gvfs (1.48.1.2-deepin2) unstable; urgency=high
+gvfs (1.54.0-4) unstable; urgency=medium
 
-  * fix smb anonymous login failed
+  * Don't require libgdata-dev on i386
 
- -- wangrong <wangrong@uniontech.com>  Thu, 25 Aug 2022 09:46:29 +0800
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 15 May 2024 09:21:59 +0200
 
-gvfs (1.48.1.1-deepin1) unstable; urgency=high
+gvfs (1.54.0-3) unstable; urgency=medium
 
-  * fix smb backend exit after ccache login failed
+  [ Sebastien Bacher ]
+  * Enable the new OneDrive backend
 
- -- wangrong <wangrong@uniontech.com>  Wed, 17 Aug 2022 15:17:07 +0800
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 14 May 2024 16:34:54 +0200
+
+gvfs (1.54.0-2) unstable; urgency=medium
+
+  * Team upload
+  * Build-depend on systemd-dev instead of systemd (Closes: #1060552)
+
+ -- Michael Biebl <biebl@debian.org>  Tue, 14 May 2024 14:13:34 +0200
+
+gvfs (1.54.0-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 15 Mar 2024 07:42:29 -0400
+
+gvfs (1.53.90-4) unstable; urgency=medium
+
+  * Stop enabling GNOME Online Accounts on i386
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 07 Mar 2024 11:50:29 -0500
+
+gvfs (1.53.90-3) unstable; urgency=medium
+
+  * Drop patch reverting switch to gcr4
+  * Update Build-Depends
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 28 Feb 2024 22:11:38 -0500
+
+gvfs (1.53.90-2) unstable; urgency=medium
+
+  * Demote wsdd to Suggests (Closes: #1064208)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sun, 18 Feb 2024 16:36:33 -0500
+
+gvfs (1.53.90-1) unstable; urgency=medium
+
+  * New upstream release
+  * Add patch to revert switch to gcr4
+  * Disable new onedrive feature since msgraph is not in Debian yet
+  * gvfs-backends.install: Install new wsdd support for
+    discovery of newer Windows network shares
+  * Suggest wsdd on Ubuntu; recommend it everywhere else
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 14 Feb 2024 17:50:46 -0500
+
+gvfs (1.52.2-1) unstable; urgency=medium
+
+  * New upstream release
+  * Stop using debian/control.in and dh_gnome_clean
+  * Update standards version to 4.6.2, no changes needed.
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 05 Jan 2024 10:00:18 -0500
+
+gvfs (1.52.1-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream release
+
+ -- Nathan Pratta Teodosio <nathan.teodosio@canonical.com>  Tue, 24 Oct 2023 11:12:08 +0200
+
+gvfs (1.52.0-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 15 Sep 2023 14:16:17 -0400
+
+gvfs (1.51.91-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 01 Sep 2023 08:45:02 -0400
+
+gvfs (1.51.90-1) unstable; urgency=medium
+
+  * New upstream release
+  * debian/control.in: Bump minimum libmtp to 1.1.21
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 09 Aug 2023 15:41:37 -0400
+
+gvfs (1.50.6-2) unstable; urgency=high
+
+  * Restore 1.50.4-3 changes accidentally left out of 1.50.6-1
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 07 Aug 2023 06:49:13 -0400
+
+gvfs (1.50.6-1) unstable; urgency=high
+
+  * New upstream release
+  * Drop 5 patches applied in new release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 07 Aug 2023 06:38:41 -0400
+
+gvfs (1.50.4-3) unstable; urgency=medium
+
+  * Team upload
+  * d/p/gvfs-test-Kill-home-test_polkitd.py-correctly.patch:
+    Add patch to fix the autopkgtest when run in autopkgtest-virt-qemu.
+    The home/test_polkitd.py script wasn't terminated correctly, causing
+    the testbed to wait indefinitely for it to exit.
+    - d/tests/control: Depend on procps, for pkill(1)
+  * d/tests: Make use of the needs-sudo restriction.
+    This was added to autopkgtest in Debian 12 (specifically version
+    5.26, see #906424) and makes the use of sudo in gvfs' integration
+    test script something that can be supported by any sufficiently
+    capable backend.  In the case of gvfs, autopkgtest-virt-lxc as used
+    on ci.debian.net is not sufficient, but maintainers can now run the
+    test in autopkgtest-virt-qemu.
+  * Add more details of the changes in the previous two changelog entries
+  * Remove some Lintian overrides that are no longer needed.
+    Lintian no longer considers symlinks between /usr/lib and /usr/libexec
+    to be a problem.
+
+ -- Simon McVittie <smcv@debian.org>  Fri, 23 Jun 2023 11:37:11 +0100
+
+gvfs (1.50.4-2) unstable; urgency=medium
+
+  * Cherry-pick 3 patches from gnome-42 branch
+    - d/p/mtp-Emit-delete-event-on-device-when-disconnected.patch:
+      Emit delete event on mtp devices when disconnected, so that clients
+      such as Nautilus can respond to the device's disappearance
+      (related to nautilus#371 upstream)
+    - d/p/smb-Allow-renaming-a-file-to-the-same-name-with-a-differe.patch:
+      Allow renaming a file on SMB/CIFS to the same name with a
+      different case (gvfs#672 upstream)
+    - d/p/trash-Sync-trash-dir-items-when-files-change.patch:
+      Sync trash directory items when files change, so that the number of
+      files reported is always consistent with the list of files
+  * d/p/tests-new-polkitd.patch:
+    Add proposed patch to fix testsuite with recent policykit-1
+  * Release to unstable
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 29 May 2023 16:17:19 -0400
+
+gvfs (1.50.4-1) experimental; urgency=medium
+
+  * New upstream release
+    - http: Report uncompressed sizes in GFileInfo, in particular avoiding
+      strange progress reporting caused by counting uncompressed bytes for
+      current status but compressed bytes for total/expected size
+      (gvfs#195 upstream)
+    - dav: Fix a critical warning (unref of NULL object pointer) when
+      attempting to push a nonexistent source file
+    - Fix errors copying/moving files when running inside a Flatpak app
+    - Make string comparisons more correct, avoiding possible incorrect
+      behaviour with future GLib versions (no practical effect right now)
+    - Remove a code path that is never reached
+    - Translation updates: be, tr
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Mon, 27 Mar 2023 10:49:19 -0400
+
+gvfs (1.50.3-1) unstable; urgency=medium
+
+  [ Jeremy Bicha ]
+  * New upstream release
+  * Build-Depend on dh-sequence-gnome instead of gnome-pkg-tools
+
+  [ Debian Janitor ]
+  * Bump debhelper from old 12 to 13
+  * Add debian/upstream/metadata
+  * Avoid explicitly specifying -Wl,--as-needed linker flag
+  * Drop transition for old debug package migration
+  * Fix some minor Lintian warnings
+  * Update standards version to 4.6.1, no changes needed
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Mon, 09 Jan 2023 12:10:14 -0500
+
+gvfs (1.50.2-2) unstable; urgency=medium
+
+  * Team upload
+  * d/control.in: gvfs-backends Suggests pkexec, for the admin:// backend
+  * d/control.in: Build-depend on polkitd instead of transitional
+    policykit-1. This package doesn't appear to require pkexec at
+    build-time.
+  * d/tests/control: Depend on polkitd instead of transitional policykit-1.
+    The admin backend uses pkexec, but the tests don't exercise it.
+  * d/tests/control: Require libglib2.0-bin, for gio(1)
+  * d/tests/integration: Skip the test if we cannot run sudo
+    noninteractively.
+    Having this fully working on Debian depends on an autopkgtest feature
+    request (see #906424) or on working around the missing feature.
+
+ -- Simon McVittie <smcv@debian.org>  Fri, 02 Sep 2022 11:03:42 +0100
+
+gvfs (1.50.2-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Thu, 02 Jun 2022 16:01:46 -0400
+
+gvfs (1.50.1-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream release
+    - Work around "Invalid argument" with misconfigured kerberos/ccache
+      if using smbclient 4.16.0
+
+ -- Simon McVittie <smcv@debian.org>  Wed, 04 May 2022 12:20:51 +0100
+
+gvfs (1.50.0-1) unstable; urgency=medium
+
+  * New upstream release
+  * Drop 2 admin patches & the meson patch: applied in new release
+  * debian/control.in: Bump minimum glib and meson
+  * debian/control.in: Build-Depend on libsoup3 instead of libsoup2.4
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Mon, 21 Mar 2022 11:52:28 -0400
+
+gvfs (1.48.1-4) unstable; urgency=medium
+
+  [ Simon McVittie ]
+  * Remove deprecated gvfs-bin package.
+    Upstream removed the gvfs-foo(1) tools in 2018, before Debian 10.
+
+ -- Jeremy Bicha <jeremy.bicha@canonical.com>  Tue, 15 Feb 2022 15:43:16 -0500
+
+gvfs (1.48.1-3) unstable; urgency=medium
+
+  * Cherry-pick commit to fix build with latest meson
+
+ -- Jeremy Bicha <jeremy.bicha@canonical.com>  Fri, 11 Feb 2022 14:59:27 -0500
 
 gvfs (1.48.1-2) unstable; urgency=medium
 

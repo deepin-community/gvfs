@@ -1106,10 +1106,10 @@ handle_login (GVfsBackend *backend,
       if (g_str_has_suffix (buffer, "password: ") ||
           g_str_has_suffix (buffer, "Password: ") ||
           g_str_has_suffix (buffer, "Password:")  ||
-          g_str_has_prefix (buffer, "Password for ") ||
-          g_str_has_prefix (buffer, "Enter Kerberos password") ||
-          g_str_has_prefix (buffer, "Enter passphrase for key") ||
-          g_str_has_prefix (buffer, "Enter PASSCODE"))
+          strstr (buffer, "Password for ") ||
+          strstr (buffer, "Enter Kerberos password") ||
+          strstr (buffer, "Enter passphrase for key") ||
+          strstr (buffer, "Enter PASSCODE"))
         {
           gboolean aborted = FALSE;
           gsize bytes_written;
@@ -1265,8 +1265,8 @@ handle_login (GVfsBackend *backend,
               break;
             }
         }
-      else if (g_str_has_prefix (buffer, "Verification code") ||
-               g_str_has_prefix (buffer, "One-time password"))
+      else if (strstr (buffer, "Verification code") ||
+               strstr (buffer, "One-time password"))
         {
           gchar *verification_code = NULL;
           gboolean aborted = FALSE;
@@ -2470,6 +2470,7 @@ parse_attributes (GVfsBackendSftp *backend,
   gboolean has_uid, free_mimetype;
   char *mimetype;
   gboolean uncertain_content_type;
+  gboolean is_symlink;
   
   flags = g_data_input_stream_read_uint32 (reply, NULL, NULL);
 
@@ -2510,6 +2511,7 @@ parse_attributes (GVfsBackendSftp *backend,
 
       mimetype = NULL;
       uncertain_content_type = FALSE;
+      is_symlink = FALSE;
       if (S_ISREG (mode))
         type = G_FILE_TYPE_REGULAR;
       else if (S_ISDIR (mode))
@@ -2540,7 +2542,7 @@ parse_attributes (GVfsBackendSftp *backend,
       else if (S_ISLNK (mode))
         {
           type = G_FILE_TYPE_SYMBOLIC_LINK;
-          g_file_info_set_is_symlink (info, TRUE);
+          is_symlink = TRUE;
           mimetype = "inode/symlink";
         }
 
@@ -2559,6 +2561,7 @@ parse_attributes (GVfsBackendSftp *backend,
       if (!uncertain_content_type)
         g_file_info_set_content_type (info, mimetype);
       g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE, mimetype);
+      g_file_info_set_is_symlink (info, is_symlink);
       
       if (g_file_attribute_matcher_matches (matcher,
                                             G_FILE_ATTRIBUTE_STANDARD_ICON)

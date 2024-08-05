@@ -11,10 +11,10 @@ Forwarded: not-needed, Debian-specific
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/meson.build b/meson.build
-index af80b29..5410bbe 100644
+index eb5989b..fdf5992 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -303,7 +303,7 @@ privileged_group = get_option('privileged_group')
+@@ -306,7 +306,7 @@ privileged_group = get_option('privileged_group')
  enable_admin = get_option('admin')
  if enable_admin
    libcap_dep = dependency('libcap')

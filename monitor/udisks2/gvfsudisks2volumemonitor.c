@@ -91,12 +91,15 @@ static void update_mounts            (GVfsUDisks2VolumeMonitor  *monitor,
                                       GList                    **added_mounts,
                                       GList                    **removed_mounts,
                                       gboolean                   coldplug);
+
+#if defined(HAVE_BURN) || defined(HAVE_CDDA)
 static void update_discs             (GVfsUDisks2VolumeMonitor  *monitor,
                                       GList                    **added_volumes,
                                       GList                    **removed_volumes,
                                       GList                    **added_mounts,
                                       GList                    **removed_mounts,
                                       gboolean                   coldplug);
+#endif
 
 
 static void on_client_changed (UDisksClient *client,
@@ -442,6 +445,9 @@ get_udisks_client_sync (GError **error)
   if (g_once_init_enter (&initialized))
     {
       _client = udisks_client_new_sync (NULL, &_error);
+      if (_error != NULL)
+        g_warning ("Failed to connect to UDisks: %s", _error->message);
+
       g_once_init_leave (&initialized, 1);
     }
 
@@ -567,10 +573,13 @@ update_all (GVfsUDisks2VolumeMonitor *monitor,
   update_volumes (monitor, &added_volumes, &removed_volumes, coldplug);
   update_fstab_volumes (monitor, &added_volumes, &removed_volumes, coldplug);
   update_mounts (monitor, &added_mounts, &removed_mounts, coldplug);
+
+#if defined(HAVE_BURN) || defined(HAVE_CDDA)
   update_discs (monitor,
                 &added_volumes, &removed_volumes,
                 &added_mounts, &removed_mounts,
                 coldplug);
+#endif
 
   if (emit_changes)
     {
@@ -702,7 +711,12 @@ should_include_mount (GVfsUDisks2VolumeMonitor  *monitor,
 {
   GUnixMountPoint *mount_point;
   const gchar *options;
-  gboolean ret;
+  gboolean ret = FALSE;
+
+  if (g_strcmp0 (g_unix_mount_get_fs_type (mount_entry), "autofs") == 0)
+    {
+      goto out;
+    }
 
   /* If mounted at the designated mount point, use g_unix_mount_point_get_options
    * in prior to g_unix_mount_get_options to keep support of "comment=" options,
@@ -970,6 +984,29 @@ should_include_drive (GVfsUDisks2VolumeMonitor *monitor,
   return ret;
 }
 
+#if defined(HAVE_BURN) || defined(HAVE_CDDA)
+static gboolean
+should_include_disc (GVfsUDisks2VolumeMonitor *monitor,
+                     UDisksDrive              *drive)
+{
+  gboolean ret = FALSE;
+
+  /* only consider blank and audio discs */
+
+#ifdef HAVE_BURN
+  if (udisks_drive_get_optical_blank (drive))
+    ret = TRUE;
+#endif
+
+#ifdef HAVE_CDDA
+  if (udisks_drive_get_optical_num_audio_tracks (drive) > 0)
+    ret = TRUE;
+#endif
+
+  return ret;
+}
+#endif
+
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gint
@@ -994,6 +1031,7 @@ block_compare (UDisksBlock *a, UDisksBlock *b)
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+#if defined(HAVE_BURN) || defined(HAVE_CDDA)
 static GVfsUDisks2Volume *
 find_disc_volume_for_block (GVfsUDisks2VolumeMonitor *monitor,
                             UDisksBlock              *block)
@@ -1014,6 +1052,7 @@ find_disc_volume_for_block (GVfsUDisks2VolumeMonitor *monitor,
  out:
   return ret;
 }
+#endif
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -1783,6 +1822,7 @@ update_mounts (GVfsUDisks2VolumeMonitor  *monitor,
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+#if defined(HAVE_BURN) || defined(HAVE_CDDA)
 static void
 update_discs (GVfsUDisks2VolumeMonitor  *monitor,
               GList                    **added_volumes,
@@ -1827,9 +1867,7 @@ update_discs (GVfsUDisks2VolumeMonitor  *monitor,
       if (!should_include_drive (monitor, udisks_drive))
         continue;
 
-      /* only consider blank and audio discs */
-      if (!(udisks_drive_get_optical_blank (udisks_drive) ||
-            udisks_drive_get_optical_num_audio_tracks (udisks_drive) > 0))
+      if (!should_include_disc (monitor, udisks_drive))
         continue;
 
       block = udisks_client_get_block_for_drive (monitor->client, udisks_drive, FALSE);
@@ -1878,19 +1916,25 @@ update_discs (GVfsUDisks2VolumeMonitor  *monitor,
           udisks_drive = udisks_client_get_drive_for_block (monitor->client, block);
           if (udisks_drive != NULL)
             {
-              gchar *uri;
+              gchar *uri = NULL;
               GFile *activation_root;
 
+#ifdef HAVE_BURN
               if (udisks_drive_get_optical_blank (udisks_drive))
                 {
                   uri = g_strdup ("burn://");
                 }
-              else
+#endif
+
+#ifdef HAVE_CDDA
+              if (udisks_drive_get_optical_num_audio_tracks (udisks_drive) > 0)
                 {
                   gchar *basename = g_path_get_basename (udisks_block_get_device (block));
                   uri = g_strdup_printf ("cdda://%s", basename);
                   g_free (basename);
                 }
+#endif
+
               activation_root = g_file_new_for_uri (uri);
               volume = gvfs_udisks2_volume_new (monitor,
                                                 block,
@@ -1903,6 +1947,7 @@ update_discs (GVfsUDisks2VolumeMonitor  *monitor,
                   monitor->disc_volumes = g_list_prepend (monitor->disc_volumes, volume);
                   *added_volumes = g_list_prepend (*added_volumes, g_object_ref (volume));
 
+#ifdef HAVE_BURN
                   if (udisks_drive_get_optical_blank (udisks_drive))
                     {
                       mount = gvfs_udisks2_mount_new (monitor,
@@ -1914,6 +1959,7 @@ update_discs (GVfsUDisks2VolumeMonitor  *monitor,
                           *added_mounts = g_list_prepend (*added_mounts, g_object_ref (mount));
                         }
                     }
+#endif
                 }
 
               g_object_unref (activation_root);
@@ -1932,5 +1978,6 @@ update_discs (GVfsUDisks2VolumeMonitor  *monitor,
 
   g_list_free_full (objects, g_object_unref);
 }
+#endif
 
 /* ---------------------------------------------------------------------------------------------------- */

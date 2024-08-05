@@ -308,7 +308,7 @@ g_daemon_vfs_init (GDaemonVfs *vfs)
   vfs->wrapped_vfs = g_vfs_get_local ();
 
   /* Use the old .gvfs location as fallback, not .cache/gvfs */
-  if (g_get_user_runtime_dir() == g_get_user_cache_dir ())
+  if (g_strcmp0 (g_get_user_runtime_dir(), g_get_user_cache_dir ()) == 0)
     file = g_build_filename (g_get_home_dir(), ".gvfs", NULL);
   else
     file = g_build_filename (g_get_user_runtime_dir(), "gvfs", NULL);
@@ -1358,11 +1358,12 @@ g_daemon_vfs_local_file_removed (GVfs       *vfs,
       if (proxy)
         {
           metatreefile = meta_tree_get_filename (tree);
-          gvfs_metadata_call_remove_sync (proxy,
-                                          metatreefile,
-                                          tree_path,
-                                          NULL,
-                                          NULL);
+          gvfs_metadata_call_remove (proxy,
+                                     metatreefile,
+                                     tree_path,
+                                     NULL,
+                                     NULL,
+                                     NULL);
         }
       
       meta_tree_unref (tree);
@@ -1400,12 +1401,13 @@ g_daemon_vfs_local_file_moved (GVfs       *vfs,
       if (proxy)
         {
           metatreefile = meta_tree_get_filename (tree1);
-          gvfs_metadata_call_move_sync (proxy,
-                                        metatreefile,
-                                        tree_path1,
-                                        tree_path2,
-                                        NULL,
-                                        NULL);
+          gvfs_metadata_call_move (proxy,
+                                   metatreefile,
+                                   tree_path1,
+                                   tree_path2,
+                                   NULL,
+                                   NULL,
+                                   NULL);
         }
     }
 

@@ -709,6 +709,7 @@ unmount_notify_data_free (gpointer user_data)
   UnmountNotifyData *data = user_data;
 
   unmount_notify_stop_timer (data);
+  g_signal_handlers_disconnect_by_data (data->op, data);
 
   g_clear_object (&data->mount);
   g_clear_object (&data->drive);
@@ -765,7 +766,7 @@ gvfs_udisks2_unmount_notify_stop (GMountOperation *op,
                                   gboolean         unmount_failed)
 {
   gchar *message, *name;
-  UnmountNotifyData *data = g_object_get_data (G_OBJECT (op), "x-udisks2-notify-data");
+  UnmountNotifyData *data = g_object_steal_data (G_OBJECT (op), "x-udisks2-notify-data");
 
   if (data == NULL)
     return;
@@ -773,7 +774,10 @@ gvfs_udisks2_unmount_notify_stop (GMountOperation *op,
   unmount_notify_stop_timer (data);
 
   if (unmount_failed)
-    return;
+    {
+      unmount_notify_data_free (data);
+      return;
+    }
 
   name = unmount_notify_get_name (data);
   if (data->mount)
@@ -784,6 +788,7 @@ gvfs_udisks2_unmount_notify_stop (GMountOperation *op,
   g_signal_emit_by_name (data->op, "show-unmount-progress",
                          message, 0, 0);
 
+  unmount_notify_data_free (data);
   g_free (message);
   g_free (name);
 }

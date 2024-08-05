@@ -80,7 +80,6 @@ struct _GVfsBackendSmb
   int mount_try;
   gboolean mount_try_again;
   gboolean mount_cancelled;
-  gboolean use_anonymous;
 	
   gboolean password_in_keyring;
   GPasswordSave password_save;
@@ -215,13 +214,6 @@ auth_callback (SMBCCTX *context,
       backend->mount_try_again = TRUE;
       g_debug ("auth_callback - ccache pass\n");
     }
-  else if (backend->use_anonymous)
-    {
-      /* Try again if anonymous login fails */
-      backend->use_anonymous = FALSE;
-      backend->mount_try_again = TRUE;
-      g_debug ("auth_callback - anonymous login pass\n");
-    }
   else
     {
       gboolean in_keyring = FALSE;
@@ -304,10 +296,13 @@ auth_callback (SMBCCTX *context,
       /* Try again if this fails */
       backend->mount_try_again = TRUE;
 
+      smbc_setOptionNoAutoAnonymousLogin (backend->smb_context,
+                                          !anonymous);
+
       if (anonymous)
         {
-          backend->use_anonymous = TRUE;
           backend->password_save = FALSE;
+          g_debug ("auth_callback - anonymous enabled\n");
         }
       else
         {
@@ -497,6 +492,10 @@ do_mount (GVfsBackend *backend,
    */
   do
     {
+      /* The mount_try_again variable is here to avoid livelock in cases when
+       * EPERM is returned immediately without calling the auth_callback
+       * function. See: https://gitlab.gnome.org/GNOME/gvfs/-/issues/703.
+       */
       op_backend->mount_try_again = FALSE;
       op_backend->mount_cancelled = FALSE;
 
@@ -513,7 +512,13 @@ do_mount (GVfsBackend *backend,
       if (res == 0)
         break;
 
-      if (op_backend->mount_cancelled || (errsv != EACCES && errsv != EPERM))
+      if (errsv == EINVAL && op_backend->mount_try <= 1 && op_backend->user == NULL)
+        {
+          /* EINVAL is "expected" when kerberos/ccache is misconfigured, see:
+           * https://gitlab.gnome.org/GNOME/gvfs/-/issues/611
+           */
+        }
+      else if (op_backend->mount_cancelled || (errsv != EACCES && errsv != EPERM))
         {
           g_debug ("do_mount - (errno != EPERM && errno != EACCES), cancelled = %d, breaking\n", op_backend->mount_cancelled);
           break;
@@ -528,12 +533,6 @@ do_mount (GVfsBackend *backend,
           g_debug ("do_mount - enabling NTLMSSP fallback\n");
           smbc_setOptionFallbackAfterKerberos (op_backend->smb_context, 1);
         }
-
-      /* If the AskPassword reply requested anonymous login, enable the
-       * anonymous fallback and try again.
-       */
-      smbc_setOptionNoAutoAnonymousLogin (op_backend->smb_context,
-                                          !op_backend->use_anonymous);
 
       op_backend->mount_try ++;
     }
@@ -1906,6 +1905,9 @@ do_set_display_name (GVfsBackend *backend,
 {
   GVfsBackendSmb *op_backend = G_VFS_BACKEND_SMB (backend);
   char *from_uri, *to_uri;
+  g_autofree char *basename = NULL;
+  g_autofree char *old_name_case = NULL;
+  g_autofree char *new_name_case = NULL;
   char *dirname, *new_path;
   int res, errsv;
   struct stat st;
@@ -1913,6 +1915,7 @@ do_set_display_name (GVfsBackend *backend,
   smbc_stat_fn smbc_stat;
 
   dirname = g_path_get_dirname (filename);
+  basename = g_path_get_basename (filename);
 
   /* TODO: display name is in utf8, atm we assume libsmb uris
      are in utf8, but this might not be true if the user changed
@@ -1924,18 +1927,25 @@ do_set_display_name (GVfsBackend *backend,
   from_uri = create_smb_uri (op_backend->server, op_backend->port, op_backend->share, filename);
   to_uri = create_smb_uri (op_backend->server, op_backend->port, op_backend->share, new_path);
   
-
-  /* We can't rely on libsmbclient reporting EEXIST, let's always stat first.
-   * https://bugzilla.gnome.org/show_bug.cgi?id=616645
+  /* If we are simply changing the case of an existing file, we don't need to
+   * worry about overwriting another file.
    */
-  smbc_stat = smbc_getFunctionStat (op_backend->smb_context);
-  res = smbc_stat (op_backend->smb_context, to_uri, &st);
-  if (res == 0)
+  old_name_case = g_utf8_casefold (basename, -1);
+  new_name_case = g_utf8_casefold (display_name, -1);
+  if (g_strcmp0 (old_name_case, new_name_case) != 0)
     {
-      g_vfs_job_failed (G_VFS_JOB (job),
-                        G_IO_ERROR, G_IO_ERROR_EXISTS,
-                        _("Can’t rename file, filename already exists"));
-      goto out;
+      /* We can't rely on libsmbclient reporting EEXIST, let's always stat first.
+       * https://bugzilla.gnome.org/show_bug.cgi?id=616645
+       */
+      smbc_stat = smbc_getFunctionStat (op_backend->smb_context);
+      res = smbc_stat (op_backend->smb_context, to_uri, &st);
+      if (res == 0)
+        {
+          g_vfs_job_failed (G_VFS_JOB (job),
+                            G_IO_ERROR, G_IO_ERROR_EXISTS,
+                            _("Can’t rename file, filename already exists"));
+          goto out;
+        }
     }
 
   smbc_rename = smbc_getFunctionRename (op_backend->smb_context);
@@ -2167,9 +2177,22 @@ do_move (GVfsBackend *backend,
 	  /* Unfortunately libsmbclient doesn't correctly return EXDEV, but falls back
 	     to EINVAL, so we try to guess when this happens: */
 	  (errsv == EINVAL && source_is_dir))
-	g_vfs_job_failed (G_VFS_JOB (job), 
-			  G_IO_ERROR, G_IO_ERROR_WOULD_RECURSE,
-			  _("Can’t recursively move directory"));
+        {
+          if (source_is_dir)
+            {
+              g_vfs_job_failed (G_VFS_JOB (job),
+                                G_IO_ERROR,
+                                G_IO_ERROR_WOULD_RECURSE,
+                                _("Can’t recursively move directory"));
+            }
+          else
+            {
+              g_vfs_job_failed (G_VFS_JOB (job),
+                                G_IO_ERROR,
+                                G_IO_ERROR_NOT_SUPPORTED,
+                                _("Operation not supported"));
+            }
+        }
       else
 	g_vfs_job_failed_from_errno (G_VFS_JOB (job), errsv);
     }
