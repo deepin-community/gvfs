@@ -1,0 +1,27 @@
+From: rong wang <wangrong@uniontech.com>
+Date: Wed Aug 9 14:28:46 2023 +0800
+Subject: [PATCH] fix: smb browse fail for netreset error
+
+When using libsmbclient to log in to some NAS servers anonymously, the
+NAS will disconnect directly when it finds that the login is anonymous.
+As a result, gio failed to mount smb. The solution is to use the
+account to log in again if it is judged that an error netreset is
+reported during the first anonymous login.
+---
+Index: gvfs-1.54.2/daemon/gvfsbackendsmbbrowse.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsbackendsmbbrowse.c
++++ gvfs-1.54.2/daemon/gvfsbackendsmbbrowse.c
+@@ -757,7 +757,11 @@ do_mount (GVfsBackend *backend,
+              uri, op_backend->mount_try, dir, op_backend->mount_cancelled,
+              errsv, g_strerror (errsv));
+ 
+-      if (errsv == EINVAL && op_backend->mount_try == 0 && op_backend->user == NULL)
++      if (errsv == ENETRESET && op_backend->mount_try == 0 && op_backend->user == NULL)
++        {
++          /* ENETRESET is "expected" when accessing some NAS servers anonymously */
++        }
++      else if (errsv == EINVAL && op_backend->mount_try == 0 && op_backend->user == NULL)
+         {
+           /* EINVAL is "expected" when kerberos is misconfigured, see:
+            * https://gitlab.gnome.org/GNOME/gvfs/-/issues/611

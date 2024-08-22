@@ -1,0 +1,144 @@
+From: rong wang <wangrong@uniontech.com>
+Date: Mon Sep 19 10:53:35 2022 +0800
+Subject: [PATCH] feat: ftp mount support socket timeout setting
+
+ftp mount supports setting socket timeout via uri, like
+"ftp://ip?socket_time=3". The unit of socket_time is seconds, the
+default value is 0, which means to wait all the time.
+---
+Index: gvfs-1.54.2/daemon/gvfsbackendftp.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsbackendftp.c
++++ gvfs-1.54.2/daemon/gvfsbackendftp.c
+@@ -449,7 +449,7 @@ do_mount (GVfsBackend *backend,
+   guint port, default_port;
+ 
+ restart:
+-  task.conn = g_vfs_ftp_connection_new (ftp->addr, task.cancellable, &task.error);
++  task.conn = g_vfs_ftp_connection_new (ftp->addr, ftp->socket_timeout, task.cancellable, &task.error);
+   /* fail fast here. No need to ask for a password if we know the hostname
+    * doesn't exist or the given host/port doesn't have an ftp server running.
+    */
+@@ -697,6 +697,36 @@ try_login:
+   g_vfs_ftp_task_done (&task);
+ }
+ 
++static int
++enum_query (char **query, char key[], char value[], int size)
++{
++  char *end;
++  int _size;
++
++  if (0 == query || 0 == *query || 0 == **query)
++    return 0;
++
++  end = strstr(*query, "=");
++  if (0 == end)
++    return 0;
++  _size = end - *query + 1;
++  if (_size > size)
++    return 0;
++  memcpy (key, *query, _size);
++  key[_size - 1] = 0;
++  *query = end + 1;
++
++  end = strstr(*query, "&");
++  _size = (0 == end) ? (strlen(*query) + 1) : (end - *query + 1);
++  if (_size > size)
++    return 0;
++  memcpy (value, *query, _size);
++  value[_size - 1] = 0;
++  *query = (0 == end) ? 0 : end + 1;
++
++  return 1;
++}
++
+ static gboolean
+ try_mount (GVfsBackend *backend,
+           GVfsJobMount *job,
+@@ -705,8 +735,9 @@ try_mount (GVfsBackend *backend,
+           gboolean is_automount)
+ {
+   GVfsBackendFtp *ftp = G_VFS_BACKEND_FTP (backend);
+-  const char *type, *host, *port_str;
++  const char *type, *host, *port_str, *query;
+   guint port;
++  char key[128], value[sizeof(key)];
+ 
+   type = g_mount_spec_get_type (mount_spec);
+   if (g_strcmp0 (type, "ftps") == 0)
+@@ -746,6 +777,16 @@ try_mount (GVfsBackend *backend,
+   if (ftp->tls_mode != G_VFS_FTP_TLS_MODE_NONE)
+     ftp->server_identity = g_object_ref (ftp->addr);
+ 
++  query = g_mount_spec_get (mount_spec, "query");
++  ftp->socket_timeout = 0;
++  while (enum_query(&query, key, value, sizeof(key)))
++    {
++      if (strcmp(key, "socket_timeout") == 0)
++        {
++          ftp->socket_timeout = strtoul(value, NULL, 10);
++        }
++    }
++
+   return FALSE;
+ }
+ 
+Index: gvfs-1.54.2/daemon/gvfsbackendftp.h
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsbackendftp.h
++++ gvfs-1.54.2/daemon/gvfsbackendftp.h
+@@ -122,6 +122,8 @@ struct _GVfsBackendFtp
+   guint                	connections;            /* current number of connections */
+   guint                 busy_connections;       /* current number of connections being used for reads/writes */
+   guint                	max_connections;        /* upper server limit for number of connections - dynamically generated */
++
++  guint                 socket_timeout;
+ };
+ 
+ struct _GVfsBackendFtpClass
+Index: gvfs-1.54.2/daemon/gvfsftpconnection.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsftpconnection.c
++++ gvfs-1.54.2/daemon/gvfsftpconnection.c
+@@ -94,6 +94,7 @@ create_input_stream (GVfsFtpConnection *
+ 
+ GVfsFtpConnection *
+ g_vfs_ftp_connection_new (GSocketConnectable *addr,
++                          guint               socket_timeout,
+                           GCancellable *      cancellable,
+                           GError **           error)
+ {
+@@ -103,6 +104,7 @@ g_vfs_ftp_connection_new (GSocketConnect
+ 
+   conn = g_slice_new0 (GVfsFtpConnection);
+   conn->client = g_socket_client_new ();
++  g_socket_client_set_timeout(conn->client, socket_timeout);
+   conn->debug_id = g_atomic_int_add (&debug_id, 1);
+   conn->commands = G_IO_STREAM (g_socket_client_connect (conn->client,
+                                                          addr,
+Index: gvfs-1.54.2/daemon/gvfsftpconnection.h
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsftpconnection.h
++++ gvfs-1.54.2/daemon/gvfsftpconnection.h
+@@ -36,6 +36,7 @@ typedef gboolean      (*CertificateCallb
+                                                                gpointer                 user_data);
+ 
+ GVfsFtpConnection *     g_vfs_ftp_connection_new              (GSocketConnectable *     addr,
++                                                               guint                    socket_timeout,
+                                                                GCancellable *           cancellable,
+                                                                GError **                error);
+ void                    g_vfs_ftp_connection_free             (GVfsFtpConnection *      conn);
+Index: gvfs-1.54.2/daemon/gvfsftptask.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsftptask.c
++++ gvfs-1.54.2/daemon/gvfsftptask.c
+@@ -248,7 +248,7 @@ g_vfs_ftp_task_acquire_connection (GVfsF
+           ftp->connections++;
+           last_thread = g_thread_self ();
+           g_mutex_unlock (&ftp->mutex);
+-          task->conn = g_vfs_ftp_connection_new (ftp->addr, task->cancellable, &task->error);
++          task->conn = g_vfs_ftp_connection_new (ftp->addr, ftp->socket_timeout, task->cancellable, &task->error);
+           if (G_LIKELY (task->conn != NULL))
+             {
+               g_vfs_ftp_task_initial_handshake (task, reconnect_certificate_cb, ftp);
