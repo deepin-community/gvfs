@@ -5,3 +5,8 @@ ref-jobs-in-thread.patch
 0008-Skip-the-umockdev-test.patch
 0009-gvfs-test-Increase-timeout-to-10s.patch
 Remove-version-from-polkit-gobject-dependency.patch
+smb-create-dummy-stat-for-root-dir-where-access-is-denied.patch
+smb-set-default-location-to-topmost-dir.patch
+add-ftp-socket-timeout.patch
+fix-smb-browse-fail-for-netreset-error.patch
+add-ftp-charset.patch

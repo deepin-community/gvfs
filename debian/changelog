@@ -1,3 +1,13 @@
+gvfs (1.54.2-2deepin1) unstable; urgency=medium
+
+  * add ftp charset support.
+  * add ftp socket timeout support.
+  * fix smb browse fail for netreset error.
+  * smb create dummy stat for root dir where access is denied.
+  * smb set default location to topmost dir.
+
+ -- wangrong <wangrong@uniontech.com>  Thu, 22 Aug 2024 11:27:03 +0800
+
 gvfs (1.54.2-2) unstable; urgency=medium
 
   * Stop building the afc backend on i386
