@@ -1,0 +1,386 @@
+From: rong wang <wangrong@uniontech.com>
+Date: Tue Apr 11 10:56:23 2023 +0800
+Subject: [PATCH] feat: ftp mount support charset setting
+
+ftp mount supports setting charset via uri, like "ftp://ip?charset=GBK".
+The default value of charset is "UTF-8". If the set charset does not
+support it will cause the mount to fail.
+---
+Index: gvfs-1.54.2/daemon/gvfsbackendftp.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsbackendftp.c
++++ gvfs-1.54.2/daemon/gvfsbackendftp.c
+@@ -392,6 +392,7 @@ g_vfs_backend_ftp_finalize (GObject *obj
+ 
+   g_free (ftp->user);
+   g_free (ftp->password);
++  g_free (ftp->charset);
+ 
+   g_clear_object (&ftp->server_identity);
+   g_clear_object (&ftp->certificate);
+@@ -449,7 +450,7 @@ do_mount (GVfsBackend *backend,
+   guint port, default_port;
+ 
+ restart:
+-  task.conn = g_vfs_ftp_connection_new (ftp->addr, ftp->socket_timeout, task.cancellable, &task.error);
++  task.conn = g_vfs_ftp_connection_new (ftp->addr, ftp->socket_timeout, ftp->charset, task.cancellable, &task.error);
+   /* fail fast here. No need to ask for a password if we know the hostname
+    * doesn't exist or the given host/port doesn't have an ftp server running.
+    */
+@@ -697,36 +698,6 @@ try_login:
+   g_vfs_ftp_task_done (&task);
+ }
+ 
+-static int
+-enum_query (char **query, char key[], char value[], int size)
+-{
+-  char *end;
+-  int _size;
+-
+-  if (0 == query || 0 == *query || 0 == **query)
+-    return 0;
+-
+-  end = strstr(*query, "=");
+-  if (0 == end)
+-    return 0;
+-  _size = end - *query + 1;
+-  if (_size > size)
+-    return 0;
+-  memcpy (key, *query, _size);
+-  key[_size - 1] = 0;
+-  *query = end + 1;
+-
+-  end = strstr(*query, "&");
+-  _size = (0 == end) ? (strlen(*query) + 1) : (end - *query + 1);
+-  if (_size > size)
+-    return 0;
+-  memcpy (value, *query, _size);
+-  value[_size - 1] = 0;
+-  *query = (0 == end) ? 0 : end + 1;
+-
+-  return 1;
+-}
+-
+ static gboolean
+ try_mount (GVfsBackend *backend,
+           GVfsJobMount *job,
+@@ -735,9 +706,11 @@ try_mount (GVfsBackend *backend,
+           gboolean is_automount)
+ {
+   GVfsBackendFtp *ftp = G_VFS_BACKEND_FTP (backend);
+-  const char *type, *host, *port_str, *query;
++  const char *type, *host, *port_str;
+   guint port;
+-  char key[128], value[sizeof(key)];
++  GHashTable *params = NULL;
++  GError *error = NULL;
++  gboolean ret = TRUE;
+ 
+   type = g_mount_spec_get_type (mount_spec);
+   if (g_strcmp0 (type, "ftps") == 0)
+@@ -753,7 +726,7 @@ try_mount (GVfsBackend *backend,
+       g_vfs_job_failed (G_VFS_JOB (job),
+                        G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                        _("No hostname specified"));
+-      return TRUE;
++      goto quit;
+     }
+   port_str = g_mount_spec_get (mount_spec, "port");
+   if (port_str == NULL)
+@@ -777,17 +750,45 @@ try_mount (GVfsBackend *backend,
+   if (ftp->tls_mode != G_VFS_FTP_TLS_MODE_NONE)
+     ftp->server_identity = g_object_ref (ftp->addr);
+ 
+-  query = g_mount_spec_get (mount_spec, "query");
++  if (g_mount_spec_get (mount_spec, "query") == NULL)
++    {
++      ret = FALSE;
++      goto quit;
++    }
++
++  params = g_uri_parse_params (g_mount_spec_get (mount_spec, "query"), -1, "&", G_URI_PARAMS_CASE_INSENSITIVE, &error);
++  if (params == NULL)
++    {
++      g_vfs_job_failed_from_error (G_VFS_JOB (job), error);
++      goto quit;
++    }
++
+   ftp->socket_timeout = 0;
+-  while (enum_query(&query, key, value, sizeof(key)))
++  if (g_hash_table_contains (params, "socket_timeout"))
++    {
++      ftp->socket_timeout = strtoul ((gchar*) g_hash_table_lookup (params, "socket_timeout"), NULL, 10);
++    }
++  ftp->charset = g_strdup ((gchar*) g_hash_table_lookup (params, "charset"));
++  if (ftp->charset)
+     {
+-      if (strcmp(key, "socket_timeout") == 0)
++      GConverter *conv;
++
++      conv = (GConverter *) g_charset_converter_new ("UTF-8", ftp->charset, &error);
++      if (conv == NULL)
+         {
+-          ftp->socket_timeout = strtoul(value, NULL, 10);
++          g_vfs_job_failed_from_error (G_VFS_JOB (job), error);
++          goto quit;
+         }
++      else
++        g_object_unref (conv);
+     }
+ 
+-  return FALSE;
++  ret = FALSE;
++
++quit:
++  g_clear_pointer (&params, g_hash_table_unref);
++  g_clear_error (&error);
++  return ret;
+ }
+ 
+ static void
+Index: gvfs-1.54.2/daemon/gvfsbackendftp.h
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsbackendftp.h
++++ gvfs-1.54.2/daemon/gvfsbackendftp.h
+@@ -124,6 +124,7 @@ struct _GVfsBackendFtp
+   guint                	max_connections;        /* upper server limit for number of connections - dynamically generated */
+ 
+   guint                 socket_timeout;
++  char *                charset;
+ };
+ 
+ struct _GVfsBackendFtpClass
+Index: gvfs-1.54.2/daemon/gvfsftpconnection.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsftpconnection.c
++++ gvfs-1.54.2/daemon/gvfsftpconnection.c
+@@ -40,12 +40,14 @@ struct _GVfsFtpConnection
+   GIOStream *        	commands;               /* ftp command stream */
+   GSocketConnection *   connection;             /* original connection */
+   GDataInputStream *    commands_in;            /* wrapper around in stream to allow line-wise reading */
++  GOutputStream *       commands_out;           /* wrapper around out stream to convert charset */
+   gboolean              waiting_for_reply;           /* TRUE if a command was sent but no reply received yet */
+ 
+   GSocket *             listen_socket;          /* socket we are listening on for active FTP connections */
+   GIOStream *        	data;                   /* ftp data stream or NULL if not in use */
+ 
+   int                   debug_id;               /* unique id for debugging purposes */
++  char *                charset;                /* ftp server charset */
+ };
+ 
+ static void
+@@ -82,19 +84,67 @@ enable_nodelay (GSocketConnection *conn)
+ static void
+ create_input_stream (GVfsFtpConnection *conn)
+ {
++  GInputStream *convert_stream;
++  GConverter *conv;
++
+   if (conn->commands_in)
+     {
+-      g_filter_input_stream_set_close_base_stream (G_FILTER_INPUT_STREAM (conn->commands_in), FALSE);
++      if (conn->charset)
++        {
++          convert_stream = g_filter_input_stream_get_base_stream (G_FILTER_INPUT_STREAM (conn->commands_in));
++          g_filter_input_stream_set_close_base_stream (G_FILTER_INPUT_STREAM (convert_stream), FALSE);
++        }
++      else
++        g_filter_input_stream_set_close_base_stream (G_FILTER_INPUT_STREAM (conn->commands_in), FALSE);
+       g_object_unref (conn->commands_in);
+     }
+ 
+-  conn->commands_in = G_DATA_INPUT_STREAM (g_data_input_stream_new (g_io_stream_get_input_stream (conn->commands)));
++  if (conn->charset)
++    {
++      conv = (GConverter *) g_charset_converter_new ("UTF-8", conn->charset, NULL);
++      g_charset_converter_set_use_fallback ((GCharsetConverter *) conv, TRUE);
++      convert_stream = (GInputStream *) g_converter_input_stream_new (g_io_stream_get_input_stream (conn->commands), conv);
++      g_object_unref (conv);
++      conn->commands_in = G_DATA_INPUT_STREAM (g_data_input_stream_new (convert_stream));
++      g_object_unref (convert_stream);
++    }
++  else
++    conn->commands_in = G_DATA_INPUT_STREAM (g_data_input_stream_new (g_io_stream_get_input_stream (conn->commands)));
++
+   g_data_input_stream_set_newline_type (conn->commands_in, G_DATA_STREAM_NEWLINE_TYPE_CR_LF);
+ }
+ 
++static void
++create_output_stream (GVfsFtpConnection *conn)
++{
++  GConverter *conv;
++
++  if (conn->commands_out)
++    {
++      if (conn->charset)
++        g_filter_output_stream_set_close_base_stream (G_FILTER_OUTPUT_STREAM (conn->commands_out), FALSE);
++      g_object_unref (conn->commands_out);
++    }
++
++  if (conn->charset)
++    {
++      conv = (GConverter *) g_charset_converter_new (conn->charset, "UTF-8", NULL);
++      g_charset_converter_set_use_fallback ((GCharsetConverter *) conv, TRUE);
++      conn->commands_out = G_OUTPUT_STREAM (g_converter_output_stream_new (g_io_stream_get_output_stream (conn->commands), conv));
++      g_object_unref (conv);
++    }
++  else
++    {
++      conn->commands_out = g_io_stream_get_output_stream (conn->commands);
++      g_object_ref (conn->commands_out);
++    }
++
++}
++
+ GVfsFtpConnection *
+ g_vfs_ftp_connection_new (GSocketConnectable *addr,
+                           guint               socket_timeout,
++                          char *              charset,
+                           GCancellable *      cancellable,
+                           GError **           error)
+ {
+@@ -106,6 +156,7 @@ g_vfs_ftp_connection_new (GSocketConnect
+   conn->client = g_socket_client_new ();
+   g_socket_client_set_timeout(conn->client, socket_timeout);
+   conn->debug_id = g_atomic_int_add (&debug_id, 1);
++  conn->charset = g_strdup (charset);
+   conn->commands = G_IO_STREAM (g_socket_client_connect (conn->client,
+                                                          addr,
+                                                          cancellable,
+@@ -121,6 +172,7 @@ g_vfs_ftp_connection_new (GSocketConnect
+   enable_nodelay (conn->connection);
+   enable_keepalive (conn->connection);
+   create_input_stream (conn);
++  create_output_stream (conn);
+   /* The first thing that needs to happen is receiving the welcome message */
+   conn->waiting_for_reply = TRUE;
+ 
+@@ -145,8 +197,10 @@ g_vfs_ftp_connection_free (GVfsFtpConnec
+   g_vfs_ftp_connection_stop_listening (conn);
+   g_vfs_ftp_connection_close_data_connection (conn);
+ 
++  g_object_unref (conn->commands_out);
+   g_object_unref (conn->commands_in);
+   g_object_unref (conn->commands);
++  g_free (conn->charset);
+   g_object_unref (conn->client);
+   g_slice_free (GVfsFtpConnection, conn);
+ }
+@@ -172,7 +226,7 @@ g_vfs_ftp_connection_send (GVfsFtpConnec
+     g_debug ("--%2d ->  %s", conn->debug_id, command);
+ 
+   conn->waiting_for_reply = TRUE;
+-  return g_output_stream_write_all (g_io_stream_get_output_stream (conn->commands),
++  return g_output_stream_write_all (conn->commands_out,
+                                     command,
+                                     len,
+                                     NULL,
+@@ -529,6 +583,38 @@ g_vfs_ftp_connection_get_debug_id (GVfsF
+ }
+ 
+ /**
++ * g_vfs_ftp_connection_get_charset_data_output_stream:
++ * @conn: the connection
++ *
++ * Gets the data output stream that support charset conversion.
++ *
++ * Returns: the data output stream that support charset conversion
++ **/
++GInputStream *
++g_vfs_ftp_connection_new_data_input_stream_with_charset (GVfsFtpConnection *      conn)
++{
++  GInputStream *stream;
++  GConverter *conv;
++
++  g_return_val_if_fail (conn != NULL, NULL);
++  g_return_val_if_fail (conn->data != NULL, NULL);
++
++  if (conn->charset == NULL)
++    {
++      stream = g_io_stream_get_input_stream (conn->data);
++      g_object_ref (stream);
++      return stream;
++    }
++
++  conv = (GConverter *) g_charset_converter_new ("UTF-8", conn->charset, NULL);
++  g_charset_converter_set_use_fallback ((GCharsetConverter *) conv, TRUE);
++  stream = (GInputStream *) g_converter_input_stream_new (g_io_stream_get_input_stream (conn->data), conv);
++  g_object_unref (conv);
++
++  return stream;
++}
++
++/**
+  * g_vfs_ftp_connection_get_data_stream:
+  * @conn: a connection
+  *
+@@ -623,6 +709,7 @@ g_vfs_ftp_connection_enable_tls (GVfsFtp
+   g_object_unref (conn->commands);
+   conn->commands = secure;
+   create_input_stream (conn);
++  create_output_stream (conn);
+ 
+   g_signal_connect (secure, "accept-certificate", G_CALLBACK (cb), user_data);
+ 
+Index: gvfs-1.54.2/daemon/gvfsftpconnection.h
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsftpconnection.h
++++ gvfs-1.54.2/daemon/gvfsftpconnection.h
+@@ -37,6 +37,7 @@ typedef gboolean      (*CertificateCallb
+ 
+ GVfsFtpConnection *     g_vfs_ftp_connection_new              (GSocketConnectable *     addr,
+                                                                guint                    socket_timeout,
++                                                               char *                   charset,
+                                                                GCancellable *           cancellable,
+                                                                GError **                error);
+ void                    g_vfs_ftp_connection_free             (GVfsFtpConnection *      conn);
+@@ -55,6 +56,8 @@ gboolean                g_vfs_ftp_connec
+ GSocketAddress *        g_vfs_ftp_connection_get_address      (GVfsFtpConnection *      conn,
+                                                                GError **                error);
+ guint                   g_vfs_ftp_connection_get_debug_id     (GVfsFtpConnection *      conn);
++GInputStream *          g_vfs_ftp_connection_new_data_input_stream_with_charset
++                                                              (GVfsFtpConnection *      conn);
+ 
+ gboolean                g_vfs_ftp_connection_open_data_connection
+                                                               (GVfsFtpConnection *      conn,
+Index: gvfs-1.54.2/daemon/gvfsftpdircache.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsftpdircache.c
++++ gvfs-1.54.2/daemon/gvfsftpdircache.c
+@@ -137,6 +137,7 @@ g_vfs_ftp_dir_cache_lookup_entry (GVfsFt
+                                   guint              stamp)
+ {
+   GVfsFtpDirCacheEntry *entry;
++  GInputStream *data_input_stream;
+ 
+   g_mutex_lock (&cache->lock);
+   entry = g_hash_table_lookup (cache->directories, dir);
+@@ -165,12 +166,14 @@ g_vfs_ftp_dir_cache_lookup_entry (GVfsFt
+     return NULL;
+ 
+   entry = g_vfs_ftp_dir_cache_entry_new (stamp);
+-  cache->funcs->process (g_io_stream_get_input_stream (g_vfs_ftp_connection_get_data_stream (task->conn)),
++  data_input_stream = g_vfs_ftp_connection_new_data_input_stream_with_charset (task->conn);
++  cache->funcs->process (data_input_stream,
+                          g_vfs_ftp_connection_get_debug_id (task->conn),
+                          dir,
+                          entry,
+                          task->cancellable,
+                          &task->error);
++  g_object_unref (data_input_stream);
+   g_vfs_ftp_task_close_data_connection (task);
+   g_vfs_ftp_task_receive (task, 0, NULL);
+   if (g_vfs_ftp_task_is_in_error (task))
+Index: gvfs-1.54.2/daemon/gvfsftptask.c
+===================================================================
+--- gvfs-1.54.2.orig/daemon/gvfsftptask.c
++++ gvfs-1.54.2/daemon/gvfsftptask.c
+@@ -248,7 +248,7 @@ g_vfs_ftp_task_acquire_connection (GVfsF
+           ftp->connections++;
+           last_thread = g_thread_self ();
+           g_mutex_unlock (&ftp->mutex);
+-          task->conn = g_vfs_ftp_connection_new (ftp->addr, ftp->socket_timeout, task->cancellable, &task->error);
++          task->conn = g_vfs_ftp_connection_new (ftp->addr, ftp->socket_timeout, ftp->charset, task->cancellable, &task->error);
+           if (G_LIKELY (task->conn != NULL))
+             {
+               g_vfs_ftp_task_initial_handshake (task, reconnect_certificate_cb, ftp);

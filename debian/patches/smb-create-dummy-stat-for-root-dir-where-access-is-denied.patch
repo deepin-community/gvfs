@@ -1,0 +1,42 @@
+From 7e37b07a45ad7e6f918ca2b3852bda6e82230391 Mon Sep 17 00:00:00 2001
+From: rong wang <wangrong@uniontech.com>
+Date: Fri, 7 Jun 2024 10:35:04 +0800
+Subject: [PATCH] smb: Create dummy stat for root dir where access is denied
+
+Due to permission control, some backends will report an error (EACCES)
+when getting the root directory attributes, but can access
+subdirectories normally. Therefore, we need to construct a dummy stat
+for the root directory so that the application (such as gvfsd-fuse) can
+smoothly traverse the root directory when accessing subdirectories.
+---
+ daemon/gvfsbackendsmb.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/daemon/gvfsbackendsmb.c b/daemon/gvfsbackendsmb.c
+index cc0fb7eb..b26b7162 100644
+--- a/daemon/gvfsbackendsmb.c
++++ b/daemon/gvfsbackendsmb.c
+@@ -1571,6 +1571,20 @@ do_query_info (GVfsBackend *backend,
+   saved_errno = errno;
+   g_free (uri);
+ 
++  /* Create dummy stat for root dir where access is denied */
++  if (saved_errno == EACCES || saved_errno == EPERM)
++    {
++      /* Check if the file name is part of the user's mount path */
++      if (g_str_equal (filename, "/") ||
++          (g_str_has_prefix (op_backend->path, filename) &&
++           op_backend->path[strlen (filename)] == '/'))
++        {
++          st.st_mode = S_IFDIR | 0500;
++
++          res = saved_errno = 0;
++        }
++    }
++
+   if (res == 0)
+     {
+       basename = g_path_get_basename (filename);
+-- 
+GitLab
+
