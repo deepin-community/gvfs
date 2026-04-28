@@ -10,3 +10,4 @@ smb-set-default-location-to-topmost-dir.patch
 add-ftp-socket-timeout.patch
 fix-smb-browse-fail-for-netreset-error.patch
 add-ftp-charset.patch
+feat-sftp-Add-file-directory-monitor-support.patch

@@ -1,0 +1,357 @@
+From f1c2ae61b7d10a7499df3ed3a01427110aef8d11 Mon Sep 17 00:00:00 2001
+From: wangrong <wangrong@uniontech.com>
+Date: Tue, 28 Apr 2026 20:55:54 +0800
+Subject: [PATCH] feat(sftp): Add file/directory monitor support
+
+Add monitor support to the SFTP backend, enabling clients to watch
+for file system changes. Supports three event types:
+- G_FILE_MONITOR_EVENT_CREATED: when files/directories are created
+- G_FILE_MONITOR_EVENT_DELETED: when files/directories are deleted
+- G_FILE_MONITOR_EVENT_CHANGED: when files are modified
+
+Events are emitted in the following operations:
+- create, replace_exclusive, make_directory, make_symlink: CREATED
+- delete, rmdir: DELETED
+- write, append_to: CHANGED
+- move, set_display_name: DELETED (source) + CREATED (destination)
+- push: CREATED
+---
+ daemon/gvfsbackendsftp.c | 170 ++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 157 insertions(+), 13 deletions(-)
+
+diff --git a/daemon/gvfsbackendsftp.c b/daemon/gvfsbackendsftp.c
+index 7e77361..731d0c5 100644
+--- a/daemon/gvfsbackendsftp.c
++++ b/daemon/gvfsbackendsftp.c
+@@ -66,6 +66,9 @@
+ #include "gvfsjobpush.h"
+ #include "gvfsjobpull.h"
+ #include "gvfsjobsetattribute.h"
++#include "gvfsjobcreatemonitor.h"
++#include "gvfsjobmakesymlink.h"
++#include "gvfsmonitor.h"
+ #include "gvfsdaemonprotocol.h"
+ #include "gvfsutils.h"
+ #include "gvfskeyring.h"
+@@ -207,6 +210,8 @@ struct _GVfsBackendSftp
+   Connection data_connection;
+ 
+   gboolean force_unmounted;
++
++  GHashTable *monitors;
+ };
+ 
+ static void parse_attributes (GVfsBackendSftp *backend,
+@@ -274,6 +279,62 @@ has_extension (GVfsBackendSftp *backend, SFTPServerExtensions extension)
+   return (backend->extensions & (1 << extension)) != 0;
+ }
+ 
++/* Monitor helper functions */
++static void
++emit_event_internal (GVfsMonitor *monitor,
++                     const char *path,
++                     GFileMonitorEvent event)
++{
++  const char *monitored_path;
++  char *parent_path;
++
++  if (path == NULL)
++    return;
++
++  monitored_path = g_object_get_data (G_OBJECT (monitor), "gvfsbackendsftp:path");
++  parent_path = g_path_get_dirname (path);
++
++  if (g_strcmp0 (parent_path, monitored_path) == 0)
++    {
++      g_debug ("(III) emit_event_internal: Event %d on directory %s for %s\n", event, parent_path, path);
++      g_vfs_monitor_emit_event (monitor, event, path, NULL);
++    }
++  else if (g_strcmp0 (path, monitored_path) == 0)
++    {
++      g_debug ("(III) emit_event_internal: Event %d on file %s\n", event, path);
++      g_vfs_monitor_emit_event (monitor, event, path, NULL);
++    }
++
++  g_free (parent_path);
++}
++
++static void
++emit_create_event (gpointer monitor, gpointer value, gpointer user_data)
++{
++  g_debug ("(II) emit_create_event.\n");
++  emit_event_internal (G_VFS_MONITOR (monitor), user_data, G_FILE_MONITOR_EVENT_CREATED);
++}
++
++static void
++emit_delete_event (gpointer monitor, gpointer value, gpointer user_data)
++{
++  g_debug ("(II) emit_delete_event.\n");
++  emit_event_internal (G_VFS_MONITOR (monitor), user_data, G_FILE_MONITOR_EVENT_DELETED);
++}
++
++static void
++emit_changed_event (gpointer monitor, gpointer value, gpointer user_data)
++{
++  g_debug ("(II) emit_changed_event.\n");
++  emit_event_internal (G_VFS_MONITOR (monitor), user_data, G_FILE_MONITOR_EVENT_CHANGED);
++}
++
++static void
++remove_monitor_weak_ref (gpointer monitor, gpointer value, gpointer monitors)
++{
++  g_object_weak_unref (G_OBJECT (monitor), (GWeakNotify) g_hash_table_remove, monitors);
++}
++
+ static void
+ destroy_connection (Connection *conn)
+ {
+@@ -301,6 +362,13 @@ g_vfs_backend_sftp_finalize (GObject *object)
+   GVfsBackendSftp *backend;
+ 
+   backend = G_VFS_BACKEND_SFTP (object);
++
++  if (backend->monitors)
++    {
++      g_hash_table_foreach (backend->monitors, remove_monitor_weak_ref, backend->monitors);
++      g_hash_table_unref (backend->monitors);
++    }
++
+   destroy_connection (&backend->command_connection);
+   destroy_connection (&backend->data_connection);
+ 
+@@ -318,6 +386,7 @@ expected_reply_free (ExpectedReply *reply)
+ static void
+ g_vfs_backend_sftp_init (GVfsBackendSftp *backend)
+ {
++  backend->monitors = g_hash_table_new (NULL, NULL);
+ }
+ 
+ static void
+@@ -3432,7 +3501,7 @@ create_reply (GVfsBackendSftp *backend,
+ {
+   SftpHandle *handle;
+   guint32 code;
+-  
++
+   if (reply_type == SSH_FXP_STATUS)
+     {
+       code = read_status_code (reply);
+@@ -3445,7 +3514,7 @@ create_reply (GVfsBackendSftp *backend,
+ 				      G_VFS_JOB_OPEN_FOR_WRITE (job)->filename);
+ 	  return;
+ 	}
+-      
++
+       result_from_status_code (job, code, G_IO_ERROR_EXISTS, -1);
+       return;
+     }
+@@ -3458,11 +3527,14 @@ create_reply (GVfsBackendSftp *backend,
+     }
+ 
+   handle = sftp_handle_new (reply);
+-  
++
+   g_vfs_job_open_for_write_set_handle (G_VFS_JOB_OPEN_FOR_WRITE (job), handle);
+   g_vfs_job_open_for_write_set_can_seek (G_VFS_JOB_OPEN_FOR_WRITE (job), TRUE);
+   g_vfs_job_open_for_write_set_can_truncate (G_VFS_JOB_OPEN_FOR_WRITE (job), TRUE);
+   g_vfs_job_succeeded (job);
++
++  g_hash_table_foreach (backend->monitors, emit_create_event,
++                        G_VFS_JOB_OPEN_FOR_WRITE (job)->filename);
+ }
+ 
+ static gboolean
+@@ -3542,11 +3614,14 @@ append_to_reply (GVfsBackendSftp *backend,
+     }
+ 
+   handle = sftp_handle_new (reply);
+-  
++
+   g_vfs_job_open_for_write_set_handle (G_VFS_JOB_OPEN_FOR_WRITE (job), handle);
+   g_vfs_job_open_for_write_set_can_seek (G_VFS_JOB_OPEN_FOR_WRITE (job), TRUE);
+   g_vfs_job_open_for_write_set_can_truncate (G_VFS_JOB_OPEN_FOR_WRITE (job), TRUE);
+   g_vfs_job_succeeded (job);
++
++  g_hash_table_foreach (backend->monitors, emit_changed_event,
++                        G_VFS_JOB_OPEN_FOR_WRITE (job)->filename);
+ }
+ 
+ static gboolean
+@@ -4074,12 +4149,13 @@ replace_exclusive_reply (GVfsBackendSftp *backend,
+     }
+   
+   handle = sftp_handle_new (reply);
+-  
++
+   g_vfs_job_open_for_write_set_handle (op_job, handle);
+   g_vfs_job_open_for_write_set_can_seek (op_job, TRUE);
+   g_vfs_job_open_for_write_set_can_truncate (op_job, TRUE);
+-  
++
+   g_vfs_job_succeeded (job);
++  g_hash_table_foreach (backend->monitors, emit_create_event, op_job->filename);
+ }
+ 
+ static gboolean
+@@ -4115,7 +4191,7 @@ write_reply (GVfsBackendSftp *backend,
+              gpointer user_data)
+ {
+   SftpHandle *handle;
+-  
++
+   handle = user_data;
+ 
+   if (reply_type == SSH_FXP_STATUS)
+@@ -4909,9 +4985,14 @@ move_reply (GVfsBackendSftp *backend,
+         {
+           /* Succeeded, report file size */
+           file_size = job->backend_data;
+-          if (file_size != NULL) 
++          if (file_size != NULL)
+             g_vfs_job_progress_callback (*file_size, *file_size, job);
+           g_vfs_job_succeeded (job);
++
++          g_hash_table_foreach (backend->monitors, emit_delete_event,
++                                G_VFS_JOB_MOVE (job)->source);
++          g_hash_table_foreach (backend->monitors, emit_create_event,
++                                G_VFS_JOB_MOVE (job)->destination);
+         }
+     }
+   else
+@@ -5092,7 +5173,18 @@ set_display_name_reply (GVfsBackendSftp *backend,
+                         gpointer user_data)
+ {
+   if (reply_type == SSH_FXP_STATUS)
+-    result_from_status (job, reply, -1, -1);
++    {
++      gboolean res = result_from_status (job, reply, -1, -1);
++      if (res)
++        {
++          GVfsJobSetDisplayName *op_job = G_VFS_JOB_SET_DISPLAY_NAME (job);
++
++          g_hash_table_foreach (backend->monitors, emit_delete_event,
++                                op_job->filename);
++          g_hash_table_foreach (backend->monitors, emit_create_event,
++                                op_job->new_path);
++        }
++    }
+   else
+     g_vfs_job_failed (job, G_IO_ERROR, G_IO_ERROR_FAILED,
+                       _("Invalid reply received"));
+@@ -5148,7 +5240,12 @@ make_symlink_reply (GVfsBackendSftp *backend,
+                     gpointer user_data)
+ {
+   if (reply_type == SSH_FXP_STATUS)
+-    result_from_status (job, reply, G_IO_ERROR_EXISTS, -1);
++    {
++      gboolean res = result_from_status (job, reply, G_IO_ERROR_EXISTS, -1);
++      if (res)
++        g_hash_table_foreach (backend->monitors, emit_create_event,
++                              G_VFS_JOB_MAKE_SYMLINK (job)->filename);
++    }
+   else
+     g_vfs_job_failed (job, G_IO_ERROR, G_IO_ERROR_FAILED,
+                       _("Invalid reply received"));
+@@ -5224,7 +5321,12 @@ make_directory_reply (GVfsBackendSftp *backend,
+                                          G_VFS_JOB (job), NULL);
+         }
+       else
+-        result_from_status_code (job, stat_error, -1, -1);
++        {
++          gboolean res = result_from_status_code (job, stat_error, -1, -1);
++          if (res)
++            g_hash_table_foreach (backend->monitors, emit_create_event,
++                                  G_VFS_JOB_MAKE_DIRECTORY (job)->filename);
++        }
+     }
+   else
+     g_vfs_job_failed (job, G_IO_ERROR, G_IO_ERROR_FAILED,
+@@ -5261,7 +5363,12 @@ delete_remove_reply (GVfsBackendSftp *backend,
+                      gpointer user_data)
+ {
+   if (reply_type == SSH_FXP_STATUS)
+-    result_from_status (job, reply, -1, -1); 
++    {
++      gboolean res = result_from_status (job, reply, -1, -1); 
++      if (res)
++        g_hash_table_foreach (backend->monitors, emit_delete_event,
++                              G_VFS_JOB_DELETE (job)->filename);
++    }
+   else
+     g_vfs_job_failed (job, G_IO_ERROR, G_IO_ERROR_FAILED,
+                       _("Invalid reply received"));
+@@ -5276,7 +5383,12 @@ delete_rmdir_reply (GVfsBackendSftp *backend,
+                     gpointer user_data)
+ {
+   if (reply_type == SSH_FXP_STATUS)
+-    result_from_status (job, reply, G_IO_ERROR_NOT_EMPTY, -1); 
++    {
++      gboolean res = result_from_status (job, reply, G_IO_ERROR_NOT_EMPTY, -1); 
++      if (res)
++        g_hash_table_foreach (backend->monitors, emit_delete_event,
++                              G_VFS_JOB_DELETE (job)->filename);
++    }
+   else
+     g_vfs_job_failed (job, G_IO_ERROR, G_IO_ERROR_FAILED,
+                       _("Invalid reply received"));
+@@ -5657,6 +5769,8 @@ push_close_moved_file (GVfsBackendSftp *backend,
+           if (handle->op_job->remove_source)
+             g_unlink (handle->op_job->local_path);
+ 
++          g_hash_table_foreach (backend->monitors, emit_create_event,
++                                G_VFS_JOB_PUSH (job)->destination);
+           g_vfs_job_succeeded (job);
+         }
+       else
+@@ -5730,6 +5844,8 @@ push_close_delete_or_succeed (GVfsBackendSftp *backend,
+       if (handle->op_job->remove_source)
+         g_unlink (handle->op_job->local_path);
+ 
++      g_hash_table_foreach (handle->backend->monitors, emit_create_event,
++                            handle->op_job->destination);
+       g_vfs_job_succeeded (handle->job);
+       sftp_push_handle_free (handle);
+     }
+@@ -6881,6 +6997,32 @@ try_pull (GVfsBackend *backend,
+   return TRUE;
+ }
+ 
++static gboolean
++try_create_monitor (GVfsBackend *backend,
++                    GVfsJobCreateMonitor *job,
++                    const char *filename,
++                    GFileMonitorFlags flags)
++{
++  GVfsBackendSftp *op_backend = G_VFS_BACKEND_SFTP (backend);
++  GVfsMonitor *vfs_monitor;
++
++  g_debug ("(I) try_create_monitor (%s)\n", filename);
++
++  vfs_monitor = g_vfs_monitor_new (backend);
++  g_object_set_data_full (G_OBJECT (vfs_monitor), "gvfsbackendsftp:path",
++                          g_strdup (filename), g_free);
++
++  g_vfs_job_create_monitor_set_monitor (job, vfs_monitor);
++  g_hash_table_add (op_backend->monitors, vfs_monitor);
++  g_object_weak_ref (G_OBJECT (vfs_monitor), (GWeakNotify) g_hash_table_remove, op_backend->monitors);
++  g_object_unref (vfs_monitor);
++  g_vfs_job_succeeded (G_VFS_JOB (job));
++
++  g_debug ("(I) try_create_monitor done.\n");
++
++  return TRUE;
++}
++
+ static void
+ g_vfs_backend_sftp_class_init (GVfsBackendSftpClass *klass)
+ {
+@@ -6919,4 +7061,6 @@ g_vfs_backend_sftp_class_init (GVfsBackendSftpClass *klass)
+   backend_class->try_set_attribute = try_set_attribute;
+   backend_class->try_push = try_push;
+   backend_class->try_pull = try_pull;
++  backend_class->try_create_dir_monitor = try_create_monitor;
++  backend_class->try_create_file_monitor = try_create_monitor;
+ }
+-- 
+2.43.4
+

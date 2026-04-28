@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin2) unstable; urgency=medium
+
+  * add sftp monitor.
+
+ -- wangrong <wangrong@uniontech.com>  Tue, 28 Apr 2026 21:04:05 +0800
+
 gvfs (1.54.2-2deepin1) unstable; urgency=medium
 
   * add ftp charset support.
