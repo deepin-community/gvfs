@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin3) unstable; urgency=medium
+
+  * Fix CVE-2026-28295: FTP PASV response SSRF vulnerability
+
+ -- deepin-ci-robot <packages@deepin.org>  Thu, 08 May 2026 00:00:00 +0800
+
 gvfs (1.54.2-2deepin2) unstable; urgency=medium
 
   * add sftp monitor.
