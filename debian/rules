@@ -40,7 +40,6 @@ endif
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-Dman=true \
-		-Ddeprecated_apis=false \
 		-Dprivileged_group=sudo \
 		$(ADMIN_BACKEND) \
 		$(BLURAY_BACKEND) \
@@ -67,16 +66,5 @@ override_dh_shlibdeps:
 
 override_dh_auto_test:
 	echo "Skipping testsuite as it's better run as an autopkgtest with machine isolation"
-
-# wsdd is in Ubuntu "universe"
-# wsdd is not working appropriately yet
-override_dh_gencontrol:
-#ifeq ($(shell dpkg-vendor --query vendor),Ubuntu)
-	dh_gencontrol -- \
-		-Vwsdd:Suggests='wsdd'
-#else
-#	dh_gencontrol -- \
-#		-Vwsdd:Recommends='wsdd'
-#endif
 
 override_dh_gnome_clean:

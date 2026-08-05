@@ -21,13 +21,13 @@ Build-Depends: debhelper-compat (= 13),
                libgcr-4-dev,
                libgcrypt20-dev (>= 1.2.2),
                libgdata-dev (>= 0.18) [!i386],
-               libglib2.0-dev (>= 2.70.0),
-               libgoa-1.0-dev (>= 3.17.1) [!i386],
+               libglib2.0-dev (>= 2.83.0),
+               libgoa-1.0-dev (>= 3.53.1) [!i386],
                libgphoto2-dev (>= 2.5.0) [!hurd-any],
                libgudev-1.0-dev (>= 147) [!hurd-any],
                libimobiledevice-dev (>= 1.2) [!hurd-any !i386],
                libltdl-dev,
-               libmsgraph-dev [!i386],
+               libmsgraph-dev (>= 0.3.0) [!i386],
                libmtp-dev (>= 1.1.21) [!hurd-any],
                libnfs-dev (>= 1.9.7),
                libplist-dev,
@@ -45,7 +45,7 @@ Build-Depends: debhelper-compat (= 13),
                polkitd [!hurd-any],
                systemd-dev (>= 206) [!hurd-any]
 Rules-Requires-Root: no
-Standards-Version: 4.7.0
+Standards-Version: 4.7.2
 Vcs-Git: https://salsa.debian.org/gnome-team/gvfs.git
 Vcs-Browser: https://salsa.debian.org/gnome-team/gvfs
 Homepage: https://wiki.gnome.org/Projects/gvfs
@@ -81,12 +81,11 @@ Depends: gvfs (= ${binary:Version}),
          psmisc,
          ${misc:Depends},
          ${shlibs:Depends}
-Recommends: gnome-keyring,
-            ${wsdd:Recommends}
+Recommends: gnome-keyring | kwalletmanager,
+            wsdd
 Suggests: bluez-obexd,
           pkexec [!hurd-any],
-          samba-common,
-          ${wsdd:Suggests}
+          samba-common
 Description: userspace virtual filesystem - backends
  gvfs is a userspace virtual filesystem where mounts run as separate
  processes which you talk to via D-Bus. It also contains a gio module

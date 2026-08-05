@@ -2,8 +2,15 @@ From: Michael Terry <mterry@ubuntu.com>
 Date: Wed, 11 Apr 2012 16:01:32 -0400
 Subject: Don't try to announce the finish of a NULL job.
 
+TODO: It isn't clear whether this is still needed. According to a
+2013-11-04 comment upstream: "This is not reproducible on current git
+master so it must have been fixed up in the meantime."
+
 Origin: vendor, Ubuntu
-Bug-Ubuntu: LP #345754, #838464
+Bug: https://bugzilla.gnome.org/show_bug.cgi?id=576731
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/gvfs/+bug/345754
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/gvfs/+bug/838464
+Forwarded: https://bugzilla.gnome.org/show_bug.cgi?id=576731#c5
 ---
  daemon/gvfschannel.c | 5 +++--
  1 file changed, 3 insertions(+), 2 deletions(-)

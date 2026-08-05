@@ -3,6 +3,7 @@ Date: Thu, 12 Apr 2012 15:14:55 -0400
 Subject: make sure to keep a ref to jobs while they run in a thread
 
 Origin: vendor, Ubuntu
+Forwarded: no
 ---
  daemon/gvfschannel.c | 5 +++--
  daemon/gvfsdaemon.c  | 7 +++++--

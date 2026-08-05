@@ -2,12 +2,24 @@ From: Christian Kellner <gicmo@gnome.org>
 Date: Wed, 4 Nov 2009 16:40:24 +0100
 Subject: Nuke the metadata file if magic blob is wrong
 
+Related to https://bugs.launchpad.net/ubuntu/+source/gvfs/+bug/405432,
+https://gitlab.gnome.org/GNOME/gvfs/-/issues/255,
+https://gitlab.gnome.org/GNOME/gvfs/-/issues/122,
+https://bugzilla.gnome.org/show_bug.cgi?id=750113,
+https://bugzilla.gnome.org/show_bug.cgi?id=598561
+
+TODO: This was never applied upstream, but it's unclear to me why it was
+marked as obsolete -smcv
+
+Forwarded: https://bugzilla.gnome.org/show_bug.cgi?id=598561
+Forwarded: https://bugzilla.gnome.org/attachment.cgi?id=146922
+Applied-upstream: no, marked as obsolete with a reference to https://bugzilla.gnome.org/show_bug.cgi?id=750113
 ---
  metadata/metatree.c | 10 +++++++++-
  1 file changed, 9 insertions(+), 1 deletion(-)
 
 diff --git a/metadata/metatree.c b/metadata/metatree.c
-index 8412455..5291f5f 100644
+index d2bf9ec..b2bee15 100644
 --- a/metadata/metatree.c
 +++ b/metadata/metatree.c
 @@ -451,7 +451,15 @@ meta_tree_init (MetaTree *tree)

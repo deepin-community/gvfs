@@ -1,0 +1,35 @@
+From: Raul Tambre <raul@tambre.ee>
+Date: Thu, 20 Mar 2025 11:00:34 +0200
+Subject: fuse: use fuse_(un)set_feature_flag instead of setting manually
+
+The old `want` member is deprecated and the new functions should be used instead.
+On my system this happens to fix the following error:
+
+  gvfsd[62597]: fuse: both 'want' and 'want_ext' are set
+
+Which prevented the daemon from starting and FUSE mounts working.
+
+Bug-Debian: https://bugs.debian.org/1100847
+Bug-Debian: https://bugs.debian.org/1101025
+Forwarded: https://gitlab.gnome.org/GNOME/gvfs/-/merge_requests/248
+---
+ client/gvfsfusedaemon.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/client/gvfsfusedaemon.c b/client/gvfsfusedaemon.c
+index 2e89b46..b54d47f 100644
+--- a/client/gvfsfusedaemon.c
++++ b/client/gvfsfusedaemon.c
+@@ -2475,10 +2475,10 @@ vfs_init (struct fuse_conn_info *conn, struct fuse_config *cfg)
+   subthread = g_thread_new ("gvfs-fuse-sub", (GThreadFunc) subthread_main, NULL);
+ 
+   /* Indicate O_TRUNC support for open() */
+-  conn->want |= FUSE_CAP_ATOMIC_O_TRUNC;
++  fuse_set_feature_flag(conn, FUSE_CAP_ATOMIC_O_TRUNC);
+ 
+   /* Prevent out-of-order readahead */
+-  conn->want &= ~FUSE_CAP_ASYNC_READ;
++  fuse_unset_feature_flag(conn, FUSE_CAP_ASYNC_READ);
+ 
+   return NULL;
+ }

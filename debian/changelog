@@ -1,25 +1,81 @@
-gvfs (1.54.2-2deepin3) unstable; urgency=medium
+gvfs (1.57.2-2+deb13u1) trixie; urgency=high
 
-  * Fix CVE-2026-28295: FTP PASV response SSRF vulnerability
-  * Fix CVE-2026-28296: FTP path CRLF injection vulnerability
+  * Non-maintainer upload by the LTS Security Team.
+  * CVE-2026-28295 ftp: Use control connection address for PASV data
+    (Closes: #1129285)
+  * CVE-2026-28296 ftp: Reject paths containing CR/LF characters
+    (Closes: #1129286)
+  * debian/gbp.conf: Set debian branch to debian/trixie
 
- -- deepin-ci-robot <packages@deepin.org>  Thu, 08 May 2026 00:00:00 +0800
+ -- Andreas Henriksson <andreas@fatal.se>  Sun, 29 Mar 2026 04:23:19 +0200
 
-gvfs (1.54.2-2deepin2) unstable; urgency=medium
+gvfs (1.57.2-2) unstable; urgency=medium
 
-  * add sftp monitor.
+  * Team upload
+  * d/p/fuse-use-fuse_-un-set_feature_flag-instead-of-setting-man.patch:
+    Add proposed patch for interoperability with FUSE 3.17.
+    Direct access to `fuse_conn_info.want` is deprecated, and currently
+    doesn't work (although that might be a libfuse bug). Use the
+    non-deprecated accessors instead. (Closes: #1100847, #1101025)
+  * d/p/Remove-version-from-polkit-gobject-dependency.patch:
+    Drop patch, no longer necessary.
+    Debian and Ubuntu are both tracking recent upstream versions of
+    polkit again, so having a stricter dependency is not a concern.
+  * d/patches: Improve patch metadata
+  * Standards-Version: 4.7.2 (no changes required)
 
- -- wangrong <wangrong@uniontech.com>  Tue, 28 Apr 2026 21:04:05 +0800
+ -- Simon McVittie <smcv@debian.org>  Sun, 23 Mar 2025 13:42:23 +0000
 
-gvfs (1.54.2-2deepin1) unstable; urgency=medium
+gvfs (1.57.2-1) unstable; urgency=medium
 
-  * add ftp charset support.
-  * add ftp socket timeout support.
-  * fix smb browse fail for netreset error.
-  * smb create dummy stat for root dir where access is denied.
-  * smb set default location to topmost dir.
+  [ Jeremy Bícha ]
+  * New upstream release
+  * Bump minimum gnome-online-accounts
 
- -- wangrong <wangrong@uniontech.com>  Thu, 22 Aug 2024 11:27:03 +0800
+  [ Simon Quigley ]
+  * Add kwalletmanager as an alternative Recommends to gnome-keyring on
+    gvfs-backends
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 18 Feb 2025 08:43:33 -0500
+
+gvfs (1.57.1-1) unstable; urgency=medium
+
+  * New upstream release
+  * Bump minimum glib and msgraph
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 12 Feb 2025 16:07:34 -0500
+
+gvfs (1.56.1-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 18 Oct 2024 08:42:03 -0400
+
+gvfs (1.56.0-2) unstable; urgency=medium
+
+  * Add back dependency on wsdd, both on Debian and Ubuntu (LP: #2081735)
+
+ -- Alessandro Astone <alessandro.astone@canonical.com>  Mon, 23 Sep 2024 10:04:03 -0400
+
+gvfs (1.56.0-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream release
+  * Refresh patches and remove patch included upstream
+
+ -- Alessandro Astone <alessandro.astone@canonical.com>  Fri, 13 Sep 2024 15:45:11 +0200
+
+gvfs (1.55.90-2) unstable; urgency=medium
+
+  * Backport patch to fix a Gio.Volume API breakage
+
+ -- Alessandro Astone <alessandro.astone@canonical.com>  Fri, 13 Sep 2024 06:55:31 -0400
+
+gvfs (1.55.90-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 07 Aug 2024 14:36:46 -0400
 
 gvfs (1.54.2-2) unstable; urgency=medium
 
