@@ -36,6 +36,7 @@
 #include "gvfsjobcloseread.h"
 #include "gvfsjobread.h"
 #include "gvfsjobseekread.h"
+#include "gvfsjobseekwrite.h"
 #include "gvfsmonitor.h"
 #include "gvfsjobsetdisplayname.h"
 #include "gvfsjobopenforwrite.h"
@@ -43,7 +44,7 @@
 
 #define GOA_API_IS_SUBJECT_TO_CHANGE
 #include <goa/goa.h>
-#include <msg/msg.h>
+#include <msg.h>
 
 #include <stdio.h>
 
@@ -158,6 +159,28 @@ items_in_folder_equal (gconstpointer a, gconstpointer b)
   return FALSE;
 }
 
+static char *
+get_full_item_id (MsgDriveItem *item)
+{
+  const char *drive_id = msg_drive_item_get_drive_id (item);
+
+  if (!drive_id)
+    drive_id = "";
+
+  return g_strconcat (drive_id, msg_drive_item_get_id (item), NULL);
+}
+
+static char *
+get_full_parent_id (MsgDriveItem *item)
+{
+  const char *drive_id = msg_drive_item_get_drive_id (item);
+
+  if (!drive_id)
+    drive_id = "";
+
+  return g_strconcat (drive_id, msg_drive_item_get_parent_id (item), NULL);
+}
+
 static void
 log_dir_items (GVfsBackendOnedrive *self)
 {
@@ -171,8 +194,10 @@ log_dir_items (GVfsBackendOnedrive *self)
   g_hash_table_iter_init (&iter, self->dir_items);
   while (g_hash_table_iter_next (&iter, (gpointer *) &key, (gpointer *) &item))
     {
+      g_autofree char *id = get_full_item_id (MSG_DRIVE_ITEM (item));
+
       g_debug ("  Real ID = %s, (%s, %s) -> %p, %d\n",
-               msg_drive_item_get_id (MSG_DRIVE_ITEM (item)),
+               id,
                key->name_or_id,
                key->parent_id,
                item,
@@ -321,11 +346,12 @@ emit_delete_event (gpointer monitor,
 
 static gboolean
 insert_item (GVfsBackendOnedrive *self,
+             MsgDriveItem        *parent,
              MsgDriveItem        *item)
 {
   DirItemsKey *k;
-  const char *id;
-  const char *parent_id;
+  g_autofree char *id = NULL;
+  g_autofree char *parent_id = NULL;
   const char *name;
   gint64 *timestamp;
 
@@ -335,11 +361,15 @@ insert_item (GVfsBackendOnedrive *self,
   g_object_set_data_full (G_OBJECT (item), "timestamp", timestamp, g_free);
 
   /* Add item to items hash */
-  id = msg_drive_item_get_id (item);
+  id = get_full_item_id (item);
   g_hash_table_insert (self->items, g_strdup (id), g_object_ref (item));
 
   /* Add item to parent dir item hash */
-  parent_id = msg_drive_item_get_parent_id (item);
+  if (parent)
+    parent_id = get_full_item_id (parent);
+  else
+    parent_id = get_full_parent_id (item);
+
   k = dir_items_key_new (id, parent_id);
   g_hash_table_insert (self->dir_items, k, g_object_ref (item));
   g_debug ("  insert_item: Inserted real     (%s, %s) -> %p\n", id, parent_id, item);
@@ -358,19 +388,20 @@ insert_custom_item (GVfsBackendOnedrive *self,
                     const char          *parent_id)
 {
   DirItemsKey *k;
-  const char *id;
+  g_autofree char *id = get_full_item_id (item);
   const char *name;
 
-  id = msg_drive_item_get_id (item);
   name = msg_drive_item_get_name (item);
 
   g_hash_table_insert (self->items, g_strdup (id), g_object_ref (item));
 
   k = dir_items_key_new (id, parent_id);
   g_hash_table_insert (self->dir_items, k, g_object_ref (item));
+  g_debug ("  insert_custom_item: Inserted real     (%s, %s) -> %p\n", id, parent_id, item);
 
   k = dir_items_key_new (name, parent_id);
   g_hash_table_insert (self->dir_items, k, g_object_ref (item));
+  g_debug ("  insert_custom_item: Inserted name    (%s, %s) -> %p\n", name, parent_id, item);
 }
 
 static gboolean
@@ -380,15 +411,16 @@ is_shared_with_me (MsgDriveItem *item)
 }
 
 static void
-remove_item_full (GVfsBackendOnedrive *self,
-                  MsgDriveItem        *item)
+remove_item (GVfsBackendOnedrive *self,
+             MsgDriveItem        *parent,
+             MsgDriveItem        *item)
 {
   DirItemsKey *k;
-  const char *id;
+  g_autofree char *id = NULL;
+  const char *parent_id = NULL;
   const char *name;
-  const char *parent_id;
 
-  id = msg_drive_item_get_id (item);
+  id = get_full_item_id (item);
   name = msg_drive_item_get_name (item);
 
   /* Remove item from hash */
@@ -397,7 +429,7 @@ remove_item_full (GVfsBackendOnedrive *self,
   if (is_shared_with_me (item))
     g_hash_table_remove (self->dir_timestamps, SHARED_WITH_ME_ID);
 
-  parent_id = msg_drive_item_get_parent_id (item);
+  parent_id = msg_drive_item_get_id (parent);
   g_hash_table_remove (self->dir_timestamps, parent_id);
 
   k = dir_items_key_new (id, parent_id);
@@ -412,21 +444,14 @@ remove_item_full (GVfsBackendOnedrive *self,
 }
 
 static void
-remove_item (GVfsBackendOnedrive *self,
-             MsgDriveItem        *item)
-{
-  remove_item_full (self, item);
-}
-
-static void
 remove_dir (GVfsBackendOnedrive *self,
             MsgDriveItem        *parent)
 {
   GHashTableIter iter;
   MsgDriveItem *item;
-  const char *parent_id = NULL;
+  g_autofree char *parent_id = NULL;
 
-  parent_id = msg_drive_item_get_id (parent);
+  parent_id = get_full_item_id (parent);
 
   g_hash_table_remove (self->dir_timestamps, parent_id);
 
@@ -434,13 +459,15 @@ remove_dir (GVfsBackendOnedrive *self,
   while (g_hash_table_iter_next (&iter, NULL, (gpointer *) &item))
     {
       DirItemsKey *k;
+      g_autofree char *id = NULL;
 
-      k = dir_items_key_new (msg_drive_item_get_id (item), parent_id);
+      id = get_full_item_id (item);
+      k = dir_items_key_new (id, parent_id);
       if (g_hash_table_lookup (self->dir_items, k) != NULL)
         {
           g_object_ref (item);
           g_hash_table_iter_remove (&iter);
-          remove_item_full (self, item);
+          remove_item (self, parent, item);
           g_object_unref (item);
         }
 
@@ -465,11 +492,13 @@ is_dir_listing_valid (GVfsBackendOnedrive *self,
                       MsgDriveItem        *parent)
 {
   gint64 *timestamp;
+  g_autofree char *id = NULL;
 
   if (parent == self->root)
     return TRUE;
 
-  timestamp = g_hash_table_lookup (self->dir_timestamps, msg_drive_item_get_id (parent));
+  id = get_full_item_id (parent);
+  timestamp = g_hash_table_lookup (self->dir_timestamps, id);
   if (timestamp != NULL)
     return (g_get_real_time () - *timestamp < REBUILD_ENTRIES_TIMEOUT * G_USEC_PER_SEC);
 
@@ -532,13 +561,13 @@ rebuild_dir (GVfsBackendOnedrive  *self,
 
   timestamp = g_new (gint64, 1);
   *timestamp = g_get_real_time ();
-  g_hash_table_insert (self->dir_timestamps, g_strdup (msg_drive_item_get_id (parent)), timestamp);
+  g_hash_table_insert (self->dir_timestamps, get_full_item_id (parent), timestamp);
 
   for (GList *l = items; l != NULL; l = l->next)
     {
       MsgDriveItem *item = MSG_DRIVE_ITEM (l->data);
 
-      insert_item (self, item);
+      insert_item (self, parent, item);
     }
 
   g_clear_list (&items, g_object_unref);
@@ -554,10 +583,10 @@ resolve_child (GVfsBackendOnedrive  *self,
   GError *local_error = NULL;
   DirItemsKey *k;
   MsgDriveItem *item;
-  const char *parent_id;
+  g_autofree char *parent_id = NULL;
   gboolean is_shared_with_me_dir = (parent == self->shared_with_me_dir);
 
-  parent_id = msg_drive_item_get_id (parent);
+  parent_id = get_full_item_id (parent);
   k = dir_items_key_new (basename, parent_id);
 
   item = g_hash_table_lookup (self->dir_items, k);
@@ -630,7 +659,7 @@ resolve (GVfsBackendOnedrive  *self,
 
   if (out_path != NULL)
     {
-      char *tmp  = g_build_path ("/", *out_path, msg_drive_item_get_id (ret_val), NULL);
+      char *tmp = g_build_path ("/", *out_path, msg_drive_item_get_name (ret_val), NULL);
       g_free (*out_path);
       *out_path = tmp;
     }
@@ -650,10 +679,8 @@ resolve_dir (GVfsBackendOnedrive  *self,
   MsgDriveItem *parent;
   MsgDriveItem *ret_val = NULL;
   GError *local_error = NULL;
-  g_autofree char *basename = NULL;
   g_autofree char *parent_path = NULL;
 
-  basename = g_path_get_basename (filename);
   parent_path = g_path_get_dirname (filename);
 
   parent = resolve (self, parent_path, cancellable, out_path, &local_error);
@@ -671,8 +698,7 @@ resolve_dir (GVfsBackendOnedrive  *self,
 
   if (out_basename != NULL)
     {
-      *out_basename = basename;
-      basename = NULL;
+      *out_basename = g_path_get_basename (filename);
     }
 
   ret_val = parent;
@@ -692,7 +718,7 @@ build_file_info (GVfsBackendOnedrive    *self,
 {
   g_autofree char *mime_type = NULL;
   GFileType file_type;
-  const char *id;
+  g_autofree char *id = NULL;
   const char *name;
   const char *user;
   const char *etag;
@@ -700,6 +726,7 @@ build_file_info (GVfsBackendOnedrive    *self,
   gboolean is_root = FALSE;
   gboolean is_home = (item == self->home);
   gboolean is_shared_with_me = (item == self->shared_with_me_dir);
+  gboolean uncertain_content_type = FALSE;
 
   if (MSG_IS_DRIVE_ITEM_FOLDER (item))
     is_folder = TRUE;
@@ -726,6 +753,12 @@ build_file_info (GVfsBackendOnedrive    *self,
       goffset size;
 
       mime_type = g_strdup (msg_drive_item_file_get_mime_type (MSG_DRIVE_ITEM_FILE (item)));
+      if (mime_type == NULL || g_str_equal (mime_type, "application/octet-stream"))
+        {
+          g_free (mime_type);
+          mime_type = g_content_type_guess (msg_drive_item_get_name (item), NULL, 0, &uncertain_content_type);
+        }
+
       file_type = G_FILE_TYPE_REGULAR;
 
       size = msg_drive_item_get_size (item);
@@ -738,7 +771,9 @@ build_file_info (GVfsBackendOnedrive    *self,
       g_autoptr (GIcon) icon = NULL;
       g_autoptr (GIcon) symbolic_icon = NULL;
 
-      g_file_info_set_content_type (info, mime_type);
+      if (!uncertain_content_type)
+        g_file_info_set_content_type (info, mime_type);
+
       g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE, mime_type);
 
       if (is_home)
@@ -763,7 +798,7 @@ build_file_info (GVfsBackendOnedrive    *self,
 
   g_file_info_set_file_type (info, file_type);
 
-  id = msg_drive_item_get_id (item);
+  id = get_full_item_id (item);
   g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_ID_FILE, id);
 
   if (is_root)
@@ -890,7 +925,7 @@ g_vfs_backend_onedrive_delete (GVfsBackend   *_self,
       goto out;
     }
 
-  id = g_strdup (msg_drive_item_get_id (item));
+  id = get_full_item_id (item);
 
   parent = resolve_dir (self, filename, cancellable, NULL, NULL, &error);
   if (error != NULL)
@@ -937,7 +972,7 @@ g_vfs_backend_onedrive_delete (GVfsBackend   *_self,
     }
 
   g_object_ref (item);
-  remove_item (self, item);
+  remove_item (self, parent, item);
 
   error = NULL;
   msg_drive_service_delete (self->service, item, cancellable, &error);
@@ -1002,7 +1037,7 @@ g_vfs_backend_onedrive_enumerate (GVfsBackend           *_self,
 
   g_vfs_job_succeeded (G_VFS_JOB (job));
 
-  id = g_strdup (msg_drive_item_get_id (item));
+  id = get_full_item_id (item);
   is_shared_with_me_dir = (item == self->shared_with_me_dir);
 
   g_hash_table_iter_init (&iter, self->items);
@@ -1011,7 +1046,7 @@ g_vfs_backend_onedrive_enumerate (GVfsBackend           *_self,
       DirItemsKey *k;
       g_autofree char *child_id = NULL;
 
-      child_id = g_strdup (msg_drive_item_get_id (child));
+      child_id = get_full_item_id (child);
       k = dir_items_key_new (child_id, id);
 
       if ((is_shared_with_me_dir && is_shared_with_me (child)) ||
@@ -1086,10 +1121,10 @@ g_vfs_backend_onedrive_make_directory (GVfsBackend          *_self,
       goto out;
     }
 
-  item_path = g_build_path ("/", parent_path, msg_drive_item_get_id (new_folder), NULL);
+  item_path = g_build_path ("/", parent_path, msg_drive_item_get_name (new_folder), NULL);
   g_debug ("  new item path: %s\n", item_path);
 
-  insert_item (self, new_folder);
+  insert_item (self, parent, new_folder);
   g_hash_table_foreach (self->monitors, emit_create_event, item_path);
   g_vfs_job_succeeded (G_VFS_JOB (job));
 
@@ -1113,6 +1148,7 @@ g_vfs_backend_onedrive_mount (GVfsBackend  *_self,
   g_autolist (MsgDrive) drives = NULL;
   GList *l = NULL;
   const char *host = NULL;
+  const char *user = NULL;
 
   g_debug ("+ mount\n");
 
@@ -1124,7 +1160,8 @@ g_vfs_backend_onedrive_mount (GVfsBackend  *_self,
     }
 
   host = g_mount_spec_get (spec, "host");
-  self->account_identity = g_strdup (host);
+  user = g_mount_spec_get (spec, "user");
+  self->account_identity = g_strconcat (user, "@", host, NULL);
 
   accounts = goa_client_get_accounts (self->client);
   for (l = accounts; l != NULL; l = l->next)
@@ -1135,7 +1172,7 @@ g_vfs_backend_onedrive_mount (GVfsBackend  *_self,
       const char *provider_type = NULL;
 
       account = goa_object_get_account (object);
-      account_identity = goa_account_get_identity (account);
+      account_identity = goa_account_get_presentation_identity (account);
       provider_type = goa_account_get_provider_type (account);
 
       if (g_strcmp0 (provider_type, "ms_graph") == 0 &&
@@ -1172,18 +1209,39 @@ g_vfs_backend_onedrive_mount (GVfsBackend  *_self,
       MsgDrive *drive = NULL;
       MsgDriveItem *item = NULL;
       g_autoptr (GError) local_error = NULL;
+      const char *drive_name = NULL;
 
       drive = MSG_DRIVE (l->data);
       item = msg_drive_service_get_root (self->service, drive, cancellable, &local_error);
       if (local_error)
         {
-          g_warning ("Could not get root: %s", local_error->message);
+          if (g_strcmp0 (local_error->message, "ObjectHandle is Invalid") == 0)
+            {
+              /* Reduce log level for this specific message as there can
+               * be drives which aren't iterable.... problem report created.
+               * https://gitlab.gnome.org/GNOME/gvfs/-/issues/763
+               */
+              g_debug ("Could not get root: %s", local_error->message);
+            }
+          else
+            {
+              g_warning ("Could not get root: %s", local_error->message);
+            }
           continue;
         }
 
       if (!self->home)
         {
           self->home = item;
+        }
+
+      drive_name = msg_drive_get_name (drive);
+      if (drive_name)
+        {
+          msg_drive_item_set_name (item, drive_name);
+        }
+      else
+        {
           msg_drive_item_set_name (item, _("My Files"));
         }
 
@@ -1198,7 +1256,8 @@ g_vfs_backend_onedrive_mount (GVfsBackend  *_self,
   g_vfs_backend_set_default_location (_self, msg_drive_item_get_name (self->home));
 
   real_mount_spec = g_mount_spec_new ("onedrive");
-  g_mount_spec_set (real_mount_spec, "host", self->account_identity);
+  g_mount_spec_set (real_mount_spec, "host", host);
+  g_mount_spec_set (real_mount_spec, "user", user);
   g_vfs_backend_set_mount_spec (_self, real_mount_spec);
   g_mount_spec_unref (real_mount_spec);
 
@@ -1493,6 +1552,32 @@ g_vfs_backend_onedrive_seek_on_read (GVfsBackend       *_self,
 }
 
 static void
+g_vfs_backend_onedrive_seek_on_write (GVfsBackend       *backend,
+                                      GVfsJobSeekWrite  *job,
+                                      GVfsBackendHandle  handle,
+                                      goffset            offset,
+                                      GSeekType          type)
+{
+  WriteHandle *wh = handle;
+  g_autoptr (GError) error = NULL;
+
+  g_debug ("+ seek_on_write: %p\n", handle);
+
+  if (g_seekable_seek (G_SEEKABLE (wh->stream), offset, job->seek_type, NULL, &error))
+    {
+      g_vfs_job_seek_write_set_offset (job, g_seekable_tell (G_SEEKABLE (wh->stream)));
+      g_vfs_job_succeeded (G_VFS_JOB (job));
+    }
+  else
+    {
+      g_warning ("Could not seek: %s", error->message);
+      g_vfs_job_failed_from_error (G_VFS_JOB (job), error);
+    }
+
+  g_debug ("- seek_on_write\n");
+}
+
+static void
 close_read_cb (GObject      *source_object,
                GAsyncResult *res,
                gpointer      user_data)
@@ -1541,10 +1626,19 @@ g_vfs_backend_onedrive_set_display_name (GVfsBackend           *_self,
   MsgDriveItem *item = NULL;
   MsgDriveItem *new_item = NULL;
   g_autofree char *item_path = NULL;
+  MsgDriveItem *parent = NULL;
   GError *error = NULL;
 
   g_rec_mutex_lock (&self->mutex);
   g_debug ("+ set_display_name: %s, %s\n", filename, display_name);
+
+  parent = resolve_dir (self, filename, cancellable, NULL, NULL, &error);
+  if (error != NULL)
+    {
+      g_vfs_job_failed_from_error (G_VFS_JOB (job), error);
+      g_error_free (error);
+      goto out;
+    }
 
   item = resolve (self, filename, cancellable, &item_path, &error);
   if (error != NULL)
@@ -1563,7 +1657,7 @@ g_vfs_backend_onedrive_set_display_name (GVfsBackend           *_self,
     }
 
   g_object_ref (item);
-  remove_item (self, item);
+  remove_item (self, parent, item);
 
   new_item = msg_drive_service_rename (self->service, item, display_name, cancellable, &error);
   g_object_unref (item);
@@ -1576,7 +1670,7 @@ g_vfs_backend_onedrive_set_display_name (GVfsBackend           *_self,
     }
 
 
-  insert_item (self, new_item);
+  insert_item (self, parent, new_item);
   g_hash_table_foreach (self->monitors, emit_renamed_event, item_path);
   g_vfs_job_set_display_name_set_new_path (job, item_path);
   g_vfs_job_succeeded (G_VFS_JOB (job));
@@ -1660,10 +1754,10 @@ g_vfs_backend_onedrive_create (GVfsBackend         *_self,
       goto out;
     }
 
-  item_path = g_build_path ("/", parent_path, msg_drive_item_get_id (new_item), NULL);
+  item_path = g_build_path ("/", parent_path, msg_drive_item_get_name (new_item), NULL);
   g_debug ("  new item path: %s\n", item_path);
 
-  insert_item (self, new_item);
+  insert_item (self, parent, new_item);
   g_hash_table_foreach (self->monitors, emit_create_event, item_path);
 
   stream = msg_drive_service_update (self->service, new_item, cancellable, &error);
@@ -1676,6 +1770,7 @@ g_vfs_backend_onedrive_create (GVfsBackend         *_self,
 
   handle = write_handle_new (new_item, stream, filename, item_path);
   g_vfs_job_open_for_write_set_handle (job, handle);
+  g_vfs_job_open_for_write_set_can_seek (job, TRUE);
   g_vfs_job_succeeded (G_VFS_JOB (job));
 
  out:
@@ -1730,6 +1825,7 @@ g_vfs_backend_onedrive_close_write (GVfsBackend       *_self,
   GVfsBackendOnedrive *self = G_VFS_BACKEND_ONEDRIVE (_self);
   GCancellable *cancellable = G_VFS_JOB (job)->cancellable;
   g_autoptr (MsgDriveItem) new_item = NULL;
+  MsgDriveItem *parent;
   GError *error = NULL;
   WriteHandle *wh = (WriteHandle *) handle;
 
@@ -1743,8 +1839,15 @@ g_vfs_backend_onedrive_close_write (GVfsBackend       *_self,
 
   g_debug ("  new item path: %s\n", wh->item_path);
 
-  remove_item (self, wh->item);
-  insert_item (self, MSG_DRIVE_ITEM (new_item));
+  parent = resolve_dir (self, wh->item_path, cancellable, NULL, NULL, &error);
+  if (error != NULL)
+    {
+      g_vfs_job_failed_from_error (G_VFS_JOB (job), error);
+      goto out;
+    }
+
+  remove_item (self, parent, wh->item);
+  insert_item (self, parent, MSG_DRIVE_ITEM (new_item));
   g_hash_table_foreach (self->monitors, emit_changes_done_event, wh->item_path);
   g_vfs_job_succeeded (G_VFS_JOB (job));
 
@@ -1825,7 +1928,7 @@ g_vfs_backend_onedrive_replace (GVfsBackend         *_self,
 
   if (needs_overwrite)
     {
-      item_path = g_build_path ("/", parent_path, msg_drive_item_get_id (existing_item), NULL);
+      item_path = g_build_path ("/", parent_path, msg_drive_item_get_name (existing_item), NULL);
       g_debug ("  existing item path: %s\n", item_path);
 
       error = NULL;
@@ -1853,16 +1956,25 @@ g_vfs_backend_onedrive_replace (GVfsBackend         *_self,
           goto out;
         }
 
-      item_path = g_build_filename (parent_path, msg_drive_item_get_id (MSG_DRIVE_ITEM (item)), NULL);
+      item_path = g_build_filename (parent_path, msg_drive_item_get_name (MSG_DRIVE_ITEM (item)), NULL);
       g_debug ("  new item path: %s\n", item_path);
 
-      insert_item (self, MSG_DRIVE_ITEM (new_item));
+      insert_item (self, parent, MSG_DRIVE_ITEM (new_item));
       g_hash_table_foreach (self->monitors, emit_create_event, item_path);
 
-      handle = write_handle_new (MSG_DRIVE_ITEM (new_item), NULL, filename, item_path);
+      stream = msg_drive_service_update (self->service, new_item, cancellable, &error);
+      if (error != NULL)
+        {
+          g_vfs_job_failed_from_error (G_VFS_JOB (job), error);
+          g_error_free (error);
+          goto out;
+        }
+
+      handle = write_handle_new (MSG_DRIVE_ITEM (new_item), stream, filename, item_path);
     }
 
   g_vfs_job_open_for_write_set_handle (job, handle);
+  g_vfs_job_open_for_write_set_can_seek (job, TRUE);
   g_vfs_job_succeeded (G_VFS_JOB (job));
 
 out:
@@ -1925,6 +2037,7 @@ g_vfs_backend_onedrive_class_init (GVfsBackendOnedriveClass *klass)
   backend_class->try_query_info_on_read = g_vfs_backend_onedrive_try_query_info_on_read;
   backend_class->try_query_info_on_write = g_vfs_backend_onedrive_try_query_info_on_write;
   backend_class->seek_on_read = g_vfs_backend_onedrive_seek_on_read;
+  backend_class->seek_on_write = g_vfs_backend_onedrive_seek_on_write;
   backend_class->set_display_name = g_vfs_backend_onedrive_set_display_name;
   backend_class->try_read = g_vfs_backend_onedrive_try_read;
   backend_class->replace = g_vfs_backend_onedrive_replace;

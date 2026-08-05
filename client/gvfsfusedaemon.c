@@ -741,7 +741,7 @@ static void
 set_attributes_from_info (GFileInfo *file_info, struct stat *sbuf)
 {
   sbuf->st_mode = file_info_get_stat_mode (file_info);
-  sbuf->st_size = g_file_info_get_size (file_info);
+  sbuf->st_size = g_file_info_get_attribute_uint64 (file_info, G_FILE_ATTRIBUTE_STANDARD_SIZE);
   sbuf->st_uid = daemon_uid;
   sbuf->st_gid = daemon_gid;
 
@@ -768,18 +768,18 @@ set_attributes_from_info (GFileInfo *file_info, struct stat *sbuf)
   sbuf->st_nlink = 1;
 }
 
-static const char *query_attributes = G_FILE_ATTRIBUTE_STANDARD_TYPE ","
-                                      G_FILE_ATTRIBUTE_STANDARD_IS_SYMLINK ","
-                                      G_FILE_ATTRIBUTE_STANDARD_SIZE ","
-                                      G_FILE_ATTRIBUTE_UNIX_MODE ","
-                                      G_FILE_ATTRIBUTE_TIME_CHANGED ","
-                                      G_FILE_ATTRIBUTE_TIME_MODIFIED ","
-                                      G_FILE_ATTRIBUTE_TIME_ACCESS ","
-                                      G_FILE_ATTRIBUTE_UNIX_BLOCK_SIZE ","
-                                      G_FILE_ATTRIBUTE_UNIX_BLOCKS ","
-                                      G_FILE_ATTRIBUTE_ACCESS_CAN_READ ","
-                                      G_FILE_ATTRIBUTE_ACCESS_CAN_WRITE ","
-                                      G_FILE_ATTRIBUTE_ACCESS_CAN_EXECUTE;
+#define QUERY_ATTRIBTUES G_FILE_ATTRIBUTE_STANDARD_TYPE "," \
+                         G_FILE_ATTRIBUTE_STANDARD_IS_SYMLINK "," \
+                         G_FILE_ATTRIBUTE_STANDARD_SIZE "," \
+                         G_FILE_ATTRIBUTE_UNIX_MODE "," \
+                         G_FILE_ATTRIBUTE_TIME_CHANGED "," \
+                         G_FILE_ATTRIBUTE_TIME_MODIFIED "," \
+                         G_FILE_ATTRIBUTE_TIME_ACCESS "," \
+                         G_FILE_ATTRIBUTE_UNIX_BLOCK_SIZE "," \
+                         G_FILE_ATTRIBUTE_UNIX_BLOCKS "," \
+                         G_FILE_ATTRIBUTE_ACCESS_CAN_READ "," \
+                         G_FILE_ATTRIBUTE_ACCESS_CAN_WRITE "," \
+                         G_FILE_ATTRIBUTE_ACCESS_CAN_EXECUTE
 
 static gint
 getattr_for_file (GFile *file, struct stat *sbuf)
@@ -788,7 +788,7 @@ getattr_for_file (GFile *file, struct stat *sbuf)
   GError    *error  = NULL;
   gint       result = 0;
 
-  file_info = g_file_query_info (file, query_attributes, 0, NULL, &error);
+  file_info = g_file_query_info (file, QUERY_ATTRIBTUES, 0, NULL, &error);
 
   if (file_info)
     {
@@ -825,12 +825,12 @@ getattr_for_file_handle (FileHandle *fh, struct stat *sbuf)
     {
     case FILE_OP_READ:
       file_info = g_file_input_stream_query_info (G_FILE_INPUT_STREAM (fh->stream),
-                                                  query_attributes,
+                                                  QUERY_ATTRIBTUES,
                                                   NULL, &error);
       break;
     case FILE_OP_WRITE:
       file_info = g_file_output_stream_query_info (G_FILE_OUTPUT_STREAM (fh->stream),
-                                                  query_attributes,
+                                                  QUERY_ATTRIBTUES,
                                                   NULL, &error);
       break;
     default:
@@ -1014,6 +1014,8 @@ setup_input_stream (GFile *file, FileHandle *fh)
   return result;
 }
 
+#define _g_file_edit(file, flags, cancellable, error) g_file_append_to(file, flags | (1 << 15), cancellable, error)
+
 static gint
 setup_output_stream (GFile *file, FileHandle *fh, int flags)
 {
@@ -1043,7 +1045,7 @@ setup_output_stream (GFile *file, FileHandle *fh, int flags)
       else if (flags & O_APPEND)
         fh->stream = g_file_append_to (file, 0, NULL, &error);
       else
-        result = -ENOTSUP;
+        fh->stream = _g_file_edit (file, 0, NULL, &error);
       if (fh->stream)
         fh->pos = g_seekable_tell (G_SEEKABLE (fh->stream));
     }
@@ -1072,9 +1074,10 @@ open_common (const gchar *path, struct fuse_file_info *fi, GFile *file, int outp
 
   SET_FILE_HANDLE (fi, fh);
 
-  g_debug ("open_common: flags=%o (%s%s%s%s)\n",
+  g_debug ("open_common: flags=%o (%s%s%s%s%s)\n",
            fi->flags,
-           fi->flags & O_WRONLY ? "O_WRONLY " : "O_RDONLY ",
+           fi->flags & O_RDONLY ? "O_RDONLY " : "",
+           fi->flags & O_WRONLY ? "O_WRONLY " : "",
            fi->flags & O_RDWR   ? "O_RDWR "   : "",
            fi->flags & O_APPEND ? "O_APPEND " : "",
            fi->flags & O_TRUNC  ? "O_TRUNC "  : "");
@@ -1482,12 +1485,6 @@ vfs_write (const gchar *path, const gchar *buf, size_t len, off_t offset,
   gint   result = 0;
 
   g_debug ("vfs_write: %s\n", path);
-  g_debug ("vfs_write: flags=%o (%s%s%s%s)\n",
-           fi->flags,
-           fi->flags & O_WRONLY ? "O_WRONLY " : "O_RDONLY ",
-           fi->flags & O_RDWR   ? "O_RDWR "   : "",
-           fi->flags & O_APPEND ? "O_APPEND " : "",
-           fi->flags & O_TRUNC  ? "O_TRUNC "  : "");
 
   if ((file = file_from_full_path (path)))
     {
@@ -1566,7 +1563,9 @@ readdir_for_file (GFile *base_file, gpointer buf, fuse_fill_dir_t filler)
 
   g_assert (base_file != NULL);
 
-  enumerator = g_file_enumerate_children (base_file, G_FILE_ATTRIBUTE_STANDARD_NAME, 0, NULL, &error);
+  enumerator = g_file_enumerate_children (base_file,
+                                          G_FILE_ATTRIBUTE_STANDARD_NAME "," QUERY_ATTRIBTUES,
+                                          0, NULL, &error);
   if (!enumerator)
     {
       gint result;
@@ -1591,7 +1590,11 @@ readdir_for_file (GFile *base_file, gpointer buf, fuse_fill_dir_t filler)
 
   while ((file_info = g_file_enumerator_next_file (enumerator, NULL, &error)) != NULL)
     {
-      filler (buf, g_file_info_get_name (file_info), NULL, 0, 0);
+      struct stat sbuf = {0};
+
+      set_attributes_from_info (file_info, &sbuf);
+
+      filler (buf, g_file_info_get_name (file_info), &sbuf, 0, FUSE_FILL_DIR_PLUS);
       g_object_unref (file_info);
     }
 
@@ -1608,6 +1611,7 @@ vfs_readdir (const gchar *path, gpointer buf, fuse_fill_dir_t filler, off_t offs
   gint         result = 0;
 
   g_debug ("vfs_readdir: %s\n", path);
+  g_debug ("vfs_readdir: flags=%o\n", fl);
 
   if (path_is_mount_list (path))
     {

@@ -7,6 +7,9 @@ quite a while. Let's give things a bit longer before giving up.
 
 Patch originally by Andreas Hasenack <andreas.hasenack@canonical.com>
 
+Bug: https://bugzilla.gnome.org/show_bug.cgi?id=794487
+Bug: https://gitlab.gnome.org/GNOME/gvfs/-/issues/331
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/gvfs/+bug/1713098
 Forwarded: https://bugzilla.gnome.org/show_bug.cgi?id=794487
 ---
  test/gvfs-test | 6 +++---

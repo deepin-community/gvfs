@@ -6,7 +6,9 @@ The trace is out of date & needs to be re-recorded by somebody who has
 the hardware.
 
 Origin: vendor, Ubuntu
-Bug-Upstream: https://bugzilla.gnome.org/show_bug.cgi?id=794488
+Bug: https://bugzilla.gnome.org/show_bug.cgi?id=794488
+Bug: https://gitlab.gnome.org/GNOME/gvfs/-/issues/332
+Forwarded: not-needed, workaround
 ---
  test/gvfs-test | 5 +++--
  1 file changed, 3 insertions(+), 2 deletions(-)

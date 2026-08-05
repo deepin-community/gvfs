@@ -626,6 +626,9 @@ on_udisks_client_changed (UDisksClient *client,
   GVfsUDisks2Volume *volume = GVFS_UDISKS2_VOLUME (user_data);
   MountData *data = NULL;
 
+  /* This is needed as gvfs_udisks2_volume_monitor_update may remove this volume. */
+  g_object_ref (volume);
+
   update_volume_on_event (volume);
 
   if (volume->mount_pending_op)
@@ -643,6 +646,8 @@ on_udisks_client_changed (UDisksClient *client,
           g_object_unref (cleartext_block);
         }
     }
+
+  g_object_unref (volume);
 }
 
 /* takes ownership of @mount_point if not NULL */
@@ -727,7 +732,7 @@ gvfs_udisks2_volume_set_mount (GVfsUDisks2Volume *volume,
         gvfs_udisks2_mount_unset_volume (volume->mount, volume);
 
       volume->mount = mount;
-
+      update_volume (volume);
       emit_changed (volume);
     }
 }
@@ -739,6 +744,7 @@ gvfs_udisks2_volume_unset_mount (GVfsUDisks2Volume *volume,
   if (volume->mount == mount)
     {
       volume->mount = NULL;
+      update_volume (volume);
       emit_changed (volume);
     }
 }

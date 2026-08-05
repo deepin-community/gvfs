@@ -1,6 +1,6 @@
 project(
   'gvfs', 'c',
-  version: '1.54.2',
+  version: '1.57.2',
   license: 'LGPL2+',
   default_options: [
     'buildtype=debugoptimized',
@@ -234,11 +234,9 @@ have_version_script = cc.has_link_argument('@0@,@1@'.format(version_script_ldfla
 
 gio_dep = dependency('gio-2.0')
 gio_unix_dep = dependency('gio-unix-2.0')
-glib_dep = dependency('glib-2.0', version: '>= 2.70.0')
+glib_dep = dependency('glib-2.0', version: '>= 2.83.0')
 gobject_dep = dependency('gobject-2.0')
 gsettings_desktop_schemas_dep = dependency('gsettings-desktop-schemas', version: '>= 3.33.0')
-
-config_h.set('HAVE_G_UNIX_MOUNT_GET_ROOT_PATH', cc.has_function('g_unix_mount_get_root_path', dependencies: gio_dep))
 
 # *** Check for libXML ***
 libxml_dep = dependency('libxml-2.0', required: false)
@@ -370,7 +368,7 @@ endif
 # *** Check if we should build with GOA volume monitor ***
 enable_goa = get_option('goa')
 if enable_goa
-  goa_dep = dependency('goa-1.0', version: '>= 3.17.1')
+  goa_dep = dependency('goa-1.0', version: '>= 3.53.1')
 endif
 
 # *** Check for GNOME Keyring ***
@@ -431,7 +429,7 @@ enable_onedrive = get_option('onedrive')
 if enable_onedrive
   assert(enable_goa, 'OneDrive backend requested but GOA is required')
 
-  msgraph_dep = dependency('msgraph-0.1')
+  msgraph_dep = dependency('msgraph-1', version: '>= 0.3.0')
 endif
 
 # *** Check for gphoto2 ***
@@ -480,6 +478,7 @@ config_h.set('HAVE_BURN', enable_burn)
 enable_deprecated_apis = get_option('deprecated_apis')
 enable_devel_utils = get_option('devel_utils')
 enable_installed_tests = get_option('installed_tests')
+enable_unit_tests = get_option('unit_tests')
 
 subdir('common')
 subdir('metadata')
