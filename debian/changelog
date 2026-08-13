@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin4) unstable; urgency=medium
+
+  * fix(trash): restore metadata::* attributes on trash restore
+
+ -- Liu Zhangjian <liuzhangjian@uniontech.com>  Thu, 13 Aug 2026 13:08:43 +0800
+
 gvfs (1.54.2-2deepin3) unstable; urgency=medium
 
   * Fix CVE-2026-28295: FTP PASV response SSRF vulnerability
