@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin5) unstable; urgency=medium
+
+  * fix: simplify trash metadata fix
+
+ -- Liu Zhangjian <liuzhangjian@uniontech.com>  Mon, 31 Aug 2026 11:28:45 +0800
+
 gvfs (1.54.2-2deepin4) unstable; urgency=medium
 
   * fix(trash): restore metadata::* attributes on trash restore

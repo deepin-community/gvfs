@@ -1,95 +1,34 @@
-diff --git a/daemon/trashlib/meson.build b/daemon/trashlib/meson.build
-index 2e1b641..68a23ba 100644
---- a/daemon/trashlib/meson.build
-+++ b/daemon/trashlib/meson.build
-@@ -10,6 +10,7 @@ deps = [
-   gio_dep,
-   gio_unix_dep,
-   glib_dep,
-+  libmetadata_dep,
+From: Kakueeen <kakueeen@example.com>
+Date: Thu, 27 Aug 2026 17:48:21 +0800
+Subject: [PATCH] fix(trash): use GDaemonVfs to maintain metadata
+
+gvfsd-trash is built without BACKEND_USES_GVFS, so it runs with
+GIO_USE_VFS=local and the local Vfs has NULL local_file_moved/local_file_removed
+hooks, leaving gvfs metadata un-rekeyed on restore and un-cleaned on empty trash.
+
+Add -DBACKEND_USES_GVFS=1 to gvfsd-trash cflags so the daemon uses GDaemonVfs,
+which registers the metadata hooks and wraps the local Vfs for path resolution.
+
+metadata::* is preserved on trash restore and cleaned up on empty trash,
+with no code duplication or extra link deps; trash backend only uses local
+paths so no circular dependency.
+
+Origin: upstream, https://gitlab.gnome.org/GNOME/gvfs/-/merge_requests/346
+---
+ daemon/meson.build | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/daemon/meson.build b/daemon/meson.build
+index 05eda6c..b3416b2 100644
+--- a/daemon/meson.build
++++ b/daemon/meson.build
+@@ -191,6 +191,7 @@ cflags = [
+   '-DBACKEND_HEADER=gvfsbackendtrash.h',
+   '-DDEFAULT_BACKEND_TYPE=trash',
+   '-DBACKEND_TYPES="trash", G_VFS_TYPE_BACKEND_TRASH,',
++  '-DBACKEND_USES_GVFS=1',
+   '-DMAX_JOB_THREADS=10',
  ]
  
- libtrash = static_library(
-diff --git a/daemon/trashlib/trashitem.c b/daemon/trashlib/trashitem.c
-index 08dd8ad..a7376cb 100644
---- a/daemon/trashlib/trashitem.c
-+++ b/daemon/trashlib/trashitem.c
-@@ -10,6 +10,7 @@
- #include "trashitem.h"
- 
- #include <glib/gstdio.h>
-+#include <metatree.h>
- 
- typedef struct
- {
-@@ -523,6 +524,46 @@ trash_item_delete (TrashItem  *item,
-   return success;
- }
- 
-+static void
-+trash_item_move_metadata (const char *source,
-+                           const char *dest)
-+{
-+  MetaLookupCache *cache;
-+  MetaTree *tree1, *tree2;
-+  char *tree_path1, *tree_path2;
-+  GVfsMetadata *proxy;
-+
-+  cache = meta_lookup_cache_new ();
-+  tree1 = meta_lookup_cache_lookup_path (cache, source, 0, FALSE, &tree_path1);
-+  tree2 = meta_lookup_cache_lookup_path (cache, dest, 0, FALSE, &tree_path2);
-+
-+  if (tree1 != NULL && tree2 != NULL && tree1 == tree2)
-+    {
-+      proxy = meta_tree_get_metadata_proxy ();
-+      if (proxy != NULL)
-+        {
-+          const char *metatreefile = meta_tree_get_filename (tree1);
-+
-+          gvfs_metadata_call_move (proxy, metatreefile,
-+                                    tree_path1, tree_path2,
-+                                    NULL, NULL, NULL);
-+        }
-+    }
-+
-+  if (tree1 != NULL)
-+    {
-+      meta_tree_unref (tree1);
-+      g_free (tree_path1);
-+    }
-+  if (tree2 != NULL)
-+    {
-+      meta_tree_unref (tree2);
-+      g_free (tree_path2);
-+    }
-+
-+  meta_lookup_cache_free (cache);
-+}
-+
- gboolean
- trash_item_restore (TrashItem  *item,
-                     GFile      *dest,
-@@ -538,6 +579,23 @@ trash_item_restore (TrashItem  *item,
-       g_hash_table_remove (item->root->item_table, item->escaped_name);
-       g_rw_lock_writer_unlock (&item->root->lock);
- 
-+      /* gvfsd-trash runs with GIO_USE_VFS=local (see daemon-main-generic.c),
-+       * so g_file_move() above used the local Vfs, whose local_file_moved hook
-+       * is NULL and does not re-key the gvfs metadata store. Without this, the
-+       * metadata::* attributes set on the file would be lost when it is
-+       * restored from the trash. Migrate the metadata entry the way
-+       * GDaemonVfs::local_file_moved would. */
-+      {
-+        char *source_path = g_file_get_path (item->file);
-+        char *dest_path = g_file_get_path (dest);
-+
-+        if (source_path != NULL && dest_path != NULL)
-+          trash_item_move_metadata (source_path, dest_path);
-+
-+        g_free (source_path);
-+        g_free (dest_path);
-+      }
-+
-       {
-         GFile *trashinfo;
-         gchar *basename;
+-- 
+2.49.0
