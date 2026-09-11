@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin6) unstable; urgency=medium
+
+  * Rebuild with LTO enabled (dpkg vendor feature optimize/lto).
+
+ -- tunaichao <tunaichao@uniontech.com>  Fri, 11 Sep 2026 15:09:14 +0800
+
 gvfs (1.54.2-2deepin5) unstable; urgency=medium
 
   * fix: simplify trash metadata fix
