@@ -7,6 +7,10 @@ gvfs (1.54.2-2deepin6) unstable; urgency=medium
     buffer size   Upstream: https://gitlab.gnome.org/GNOME/gvfs/-
     /commit/ea1322daab1979b30cf96b3e39ed6db5e45fc041,https://gitlab.gnom
     e.org/GNOME/gvfs/-/commit/1590471ad9c382de4fc544bdf49c8f424eea96f8
+  * fix(cve): CVE-2026-84269 (medium) - afp: Validate reply size in DSI
+    read reply handling   Upstream:
+    https://gitlab.gnome.org/GNOME/gvfs/-
+    /commit/072a7e02d11f5b7dfa324b70dd0e16d60f9b9e60.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Sat, 12 Sep 2026 12:04:03 +0800
 
