@@ -1,3 +1,11 @@
+gvfs (1.54.2-2deepin6) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-88924 (high) - daemon: Set socket ownership
+    before creation   Upstream: https://gitlab.gnome.org/GNOME/gvfs/-
+    /commit/371909dd201eb66c5c4d18d9e88fdae4a070b76a.patch
+
+ -- deepin-ci-robot <packages@deepin.org>  Sat, 12 Sep 2026 12:04:03 +0800
+
 gvfs (1.54.2-2deepin5) unstable; urgency=medium
 
   * fix: simplify trash metadata fix
