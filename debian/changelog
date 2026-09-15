@@ -11,6 +11,9 @@ gvfs (1.54.2-2deepin6) unstable; urgency=medium
     read reply handling   Upstream:
     https://gitlab.gnome.org/GNOME/gvfs/-
     /commit/072a7e02d11f5b7dfa324b70dd0e16d60f9b9e60.patch
+  * fix(cve): CVE-2026-84270 (medium) - [PATCH] mtp: Validate read size
+    returned by device   Upstream: https://gitlab.gnome.org/GNOME/gvfs/-
+    /commit/070e5e4223c97f7e793a342ba6e64df1095ccb0d
 
  -- deepin-ci-robot <packages@deepin.org>  Sat, 12 Sep 2026 12:04:03 +0800
 

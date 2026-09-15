@@ -17,3 +17,4 @@ fix-trashfile-restore-metadata-loss-issue.patch
 CVE-2026-88924.patch
 CVE-2026-84268.patch
 CVE-2026-84269.patch
+CVE-2026-84270.patch
