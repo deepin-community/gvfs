@@ -17,6 +17,7 @@ gvfs (1.54.2-2deepin6) unstable; urgency=medium
 
  -- deepin-ci-robot <packages@deepin.org>  Sat, 12 Sep 2026 12:04:03 +0800
 
+
 gvfs (1.54.2-2deepin5) unstable; urgency=medium
 
   * fix: simplify trash metadata fix
