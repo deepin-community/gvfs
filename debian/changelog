@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin7) unstable; urgency=medium
+
+  * feat(ftp): add file and directory monitor support to FTP backend
+
+ -- wangrong <wangrong@uniontech.com>  Thu, 15 Oct 2026 16:58:46 +0800
+
 gvfs (1.54.2-2deepin6) unstable; urgency=medium
 
   * fix(cve): CVE-2026-88924 (high) - daemon: Set socket ownership

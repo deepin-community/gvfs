@@ -1,0 +1,258 @@
+From b9755378a54fb6195f870268df5890071982bb4d Mon Sep 17 00:00:00 2001
+From: wangrong <wangrong@uniontech.com>
+Date: Thu, 15 Oct 2026 16:51:10 +0800
+Subject: [PATCH] feat(ftp): add file and directory monitor support to FTP
+ backend
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implement try_create_monitor and emit CREATED/CHANGED/DELETED events
+to affected monitors after successful write operations.
+
+实现try_create_monitor接口，并在创建、追加、替换、删除、建目录、
+移动、重命名及pull删除等写操作成功后向受影响的监视器发送事件。
+
+Log: FTP后端新增文件/目录监视器支持
+PMS: BUG-379131
+Influence: FTP挂载路径上的文件变更现在可通过文件监视器被实时感知，目录列表变动会触发相应的创建/删除/变更事件通知。
+Signed-off-by: wangrong <wangrong@uniontech.com>
+---
+ daemon/gvfsbackendftp.c | 116 ++++++++++++++++++++++++++++++++++++++++
+ daemon/gvfsbackendftp.h |   2 +
+ 2 files changed, 118 insertions(+)
+
+diff --git a/daemon/gvfsbackendftp.c b/daemon/gvfsbackendftp.c
+index 94dbd0f..ee38eb5 100644
+--- a/daemon/gvfsbackendftp.c
++++ b/daemon/gvfsbackendftp.c
+@@ -56,6 +56,8 @@
+ #include "gvfsftpdircache.h"
+ #include "gvfsftpfile.h"
+ #include "gvfsftptask.h"
++#include "gvfsjobcreatemonitor.h"
++#include "gvfsmonitor.h"
+ 
+ /*** GTK DOC ***/
+ 
+@@ -91,6 +93,63 @@
+ 
+ G_DEFINE_TYPE (GVfsBackendFtp, g_vfs_backend_ftp, G_VFS_TYPE_BACKEND)
+ 
++/* Monitor helper functions */
++
++static void
++emit_event_internal (GVfsMonitor *monitor,
++                     const char *path,
++                     GFileMonitorEvent event)
++{
++  const char *monitored_path;
++  char *parent_path;
++
++  if (path == NULL)
++    return;
++
++  monitored_path = g_object_get_data (G_OBJECT (monitor), "gvfsbackendftp:path");
++  parent_path = g_path_get_dirname (path);
++
++  if (g_strcmp0 (parent_path, monitored_path) == 0)
++    {
++      g_debug ("(III) emit_event_internal: Event %d on directory %s for %s\n", event, parent_path, path);
++      g_vfs_monitor_emit_event (monitor, event, path, NULL);
++    }
++  else if (g_strcmp0 (path, monitored_path) == 0)
++    {
++      g_debug ("(III) emit_event_internal: Event %d on file %s\n", event, path);
++      g_vfs_monitor_emit_event (monitor, event, path, NULL);
++    }
++
++  g_free (parent_path);
++}
++
++static void
++emit_create_event (gpointer monitor, gpointer value, gpointer user_data)
++{
++  g_debug ("(II) emit_create_event.\n");
++  emit_event_internal (G_VFS_MONITOR (monitor), user_data, G_FILE_MONITOR_EVENT_CREATED);
++}
++
++static void
++emit_delete_event (gpointer monitor, gpointer value, gpointer user_data)
++{
++  g_debug ("(II) emit_delete_event.\n");
++  emit_event_internal (G_VFS_MONITOR (monitor), user_data, G_FILE_MONITOR_EVENT_DELETED);
++}
++
++static void
++emit_changed_event (gpointer monitor, gpointer value, gpointer user_data)
++{
++  g_debug ("(II) emit_changed_event.\n");
++  emit_event_internal (G_VFS_MONITOR (monitor), user_data, G_FILE_MONITOR_EVENT_CHANGED);
++}
++
++static void
++remove_monitor_weak_ref (gpointer monitor, gpointer value, gpointer monitors)
++{
++  g_object_weak_unref (G_OBJECT (monitor), (GWeakNotify) g_hash_table_remove, monitors);
++}
++
+ static gboolean
+ gvfs_backend_ftp_determine_features (GVfsFtpTask *task)
+ {
+@@ -396,6 +455,12 @@ g_vfs_backend_ftp_finalize (GObject *object)
+   g_clear_object (&ftp->server_identity);
+   g_clear_object (&ftp->certificate);
+ 
++  if (ftp->monitors)
++    {
++      g_hash_table_foreach (ftp->monitors, remove_monitor_weak_ref, ftp->monitors);
++      g_hash_table_unref (ftp->monitors);
++    }
++
+   if (G_OBJECT_CLASS (g_vfs_backend_ftp_parent_class)->finalize)
+     (*G_OBJECT_CLASS (g_vfs_backend_ftp_parent_class)->finalize) (object);
+ }
+@@ -405,6 +470,7 @@ g_vfs_backend_ftp_init (GVfsBackendFtp *ftp)
+ {
+   g_mutex_init (&ftp->mutex);
+   g_cond_init (&ftp->cond);
++  ftp->monitors = g_hash_table_new (NULL, NULL);
+ }
+ 
+ static guint
+@@ -1061,6 +1127,8 @@ do_create (GVfsBackend *backend,
+   do_start_write (&task, flags, "STOR %s", g_vfs_ftp_file_get_ftp_path (file));
+   g_vfs_ftp_dir_cache_purge_file (ftp->dir_cache, file);
+   g_vfs_ftp_file_free (file);
++  if (!g_vfs_ftp_task_is_in_error (&task))
++    g_hash_table_foreach (ftp->monitors, emit_create_event, filename);
+ 
+   g_vfs_ftp_task_done (&task);
+ }
+@@ -1085,6 +1153,8 @@ do_append (GVfsBackend *backend,
+   do_start_write (&task, flags, "APPE %s", g_vfs_ftp_file_get_ftp_path (file));
+   g_vfs_ftp_dir_cache_purge_file (ftp->dir_cache, file);
+   g_vfs_ftp_file_free (file);
++  if (!g_vfs_ftp_task_is_in_error (&task))
++    g_hash_table_foreach (ftp->monitors, emit_changed_event, filename);
+ 
+   g_vfs_ftp_task_done (&task);
+ }
+@@ -1161,6 +1231,8 @@ do_replace (GVfsBackend *backend,
+   do_start_write (&task, flags, "STOR %s", g_vfs_ftp_file_get_ftp_path (file));
+   g_vfs_ftp_dir_cache_purge_file (ftp->dir_cache, file);
+   g_vfs_ftp_file_free (file);
++  if (!g_vfs_ftp_task_is_in_error (&task))
++    g_hash_table_foreach (ftp->monitors, emit_create_event, filename);
+ 
+   g_vfs_ftp_task_done (&task);
+ 
+@@ -1456,6 +1528,11 @@ do_set_display_name (GVfsBackend *backend,
+   /* FIXME: parse result of RNTO here? */
+   g_vfs_job_set_display_name_set_new_path (job, g_vfs_ftp_file_get_gvfs_path (now));
+   g_vfs_ftp_dir_cache_purge_dir (ftp->dir_cache, dir);
++  if (!g_vfs_ftp_task_is_in_error (&task))
++    {
++      g_hash_table_foreach (ftp->monitors, emit_delete_event, filename);
++      g_hash_table_foreach (ftp->monitors, emit_create_event, g_vfs_ftp_file_get_gvfs_path (now));
++    }
+   g_vfs_ftp_file_free (now);
+   g_vfs_ftp_file_free (dir);
+   g_vfs_ftp_file_free (original);
+@@ -1515,6 +1592,8 @@ do_delete (GVfsBackend *backend,
+ 
+   g_vfs_ftp_dir_cache_purge_file (ftp->dir_cache, file);
+   g_vfs_ftp_file_free (file);
++  if (!g_vfs_ftp_task_is_in_error (&task))
++    g_hash_table_foreach (ftp->monitors, emit_delete_event, filename);
+ 
+   g_vfs_ftp_task_done (&task);
+ }
+@@ -1547,6 +1626,8 @@ do_make_directory (GVfsBackend *backend,
+    * it's correct and otherwise fail. */
+   g_vfs_ftp_dir_cache_purge_file (ftp->dir_cache, file);
+   g_vfs_ftp_file_free (file);
++  if (!g_vfs_ftp_task_is_in_error (&task))
++    g_hash_table_foreach (ftp->monitors, emit_create_event, filename);
+ 
+   g_vfs_ftp_task_done (&task);
+ }
+@@ -1658,6 +1739,11 @@ do_move (GVfsBackend *backend,
+ 
+   g_vfs_ftp_dir_cache_purge_file (ftp->dir_cache, srcfile);
+   g_vfs_ftp_dir_cache_purge_file (ftp->dir_cache, destfile);
++  if (!g_vfs_ftp_task_is_in_error (&task))
++    {
++      g_hash_table_foreach (ftp->monitors, emit_delete_event, g_vfs_ftp_file_get_gvfs_path (srcfile));
++      g_hash_table_foreach (ftp->monitors, emit_create_event, g_vfs_ftp_file_get_gvfs_path (destfile));
++    }
+ out:
+   g_vfs_ftp_file_free (srcfile);
+   g_vfs_ftp_file_free (destfile);
+@@ -1860,6 +1946,8 @@ do_pull (GVfsBackend *         backend,
+       g_vfs_ftp_task_send (&task,
+                 	   G_VFS_FTP_PASS_500,
+                            "DELE %s", g_vfs_ftp_file_get_ftp_path (src));
++      if (!g_vfs_ftp_task_is_in_error (&task))
++        g_hash_table_foreach (ftp->monitors, emit_delete_event, g_vfs_ftp_file_get_gvfs_path (src));
+     }
+ 
+ out:
+@@ -1882,6 +1970,32 @@ try_query_fs_info (GVfsBackend *backend,
+   return TRUE;
+ }
+ 
++static gboolean
++try_create_monitor (GVfsBackend *backend,
++                    GVfsJobCreateMonitor *job,
++                    const char *filename,
++                    GFileMonitorFlags flags)
++{
++  GVfsBackendFtp *ftp = G_VFS_BACKEND_FTP (backend);
++  GVfsMonitor *vfs_monitor;
++
++  g_debug ("(I) try_create_monitor (%s)\n", filename);
++
++  vfs_monitor = g_vfs_monitor_new (backend);
++  g_object_set_data_full (G_OBJECT (vfs_monitor), "gvfsbackendftp:path",
++                          g_strdup (filename), g_free);
++
++  g_vfs_job_create_monitor_set_monitor (job, vfs_monitor);
++  g_hash_table_add (ftp->monitors, vfs_monitor);
++  g_object_weak_ref (G_OBJECT (vfs_monitor), (GWeakNotify) g_hash_table_remove, ftp->monitors);
++  g_object_unref (vfs_monitor);
++  g_vfs_job_succeeded (G_VFS_JOB (job));
++
++  g_debug ("(I) try_create_monitor done.\n");
++
++  return TRUE;
++}
++
+ static void
+ g_vfs_backend_ftp_class_init (GVfsBackendFtpClass *klass)
+ {
+@@ -1911,6 +2025,8 @@ g_vfs_backend_ftp_class_init (GVfsBackendFtpClass *klass)
+   backend_class->try_query_fs_info = try_query_fs_info;
+   backend_class->set_attribute = do_set_attribute;
+   backend_class->pull = do_pull;
++  backend_class->try_create_dir_monitor = try_create_monitor;
++  backend_class->try_create_file_monitor = try_create_monitor;
+ }
+ 
+ /*** PUBLIC API ***/
+diff --git a/daemon/gvfsbackendftp.h b/daemon/gvfsbackendftp.h
+index 56a465b..1467616 100644
+--- a/daemon/gvfsbackendftp.h
++++ b/daemon/gvfsbackendftp.h
+@@ -124,6 +124,8 @@ struct _GVfsBackendFtp
+ 
+   guint                 socket_timeout;
+   char *                charset;
++
++  GHashTable *          monitors;
+ };
+ 
+ struct _GVfsBackendFtpClass
+-- 
+2.20.1
+
