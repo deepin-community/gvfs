@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin1000) unstable; urgency=medium
+
+  * feat(ftp): add FTP proxy support via gsettings and ftp_proxy env
+
+ -- wangrong <wangrong@uniontech.com>  Sat, 31 Oct 2026 15:42:43 +0800
+
 gvfs (1.54.2-2deepin7) unstable; urgency=medium
 
   * feat(ftp): add file and directory monitor support to FTP backend

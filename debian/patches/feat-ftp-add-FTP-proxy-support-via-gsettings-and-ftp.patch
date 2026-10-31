@@ -1,0 +1,253 @@
+From ed3feefa48847b410a0d94cd01f44fba8847f60a Mon Sep 17 00:00:00 2001
+From: wangrong <wangrong@uniontech.com>
+Date: Sat, 31 Oct 2026 15:26:32 +0800
+Subject: [PATCH] feat(ftp): add FTP proxy support via gsettings and ftp_proxy
+ env
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add resolve_ftp_proxy() that reads proxy from org.gnome.system.proxy.ftp
+gsettings first, falling back to ftp_proxy environment variable. Connect
+to proxy and send USER user@host to relay to the real FTP server.
+
+新增FTP代理支持，优先从gsettings(org.gnome.system.proxy.ftp)读取代理
+配置，未配置时回退到ftp_proxy环境变量。通过USER user@host方式经代理
+中继连接真实FTP服务器，keyring与mount_spec始终绑定真实服务器。
+
+Log: FTP后端新增代理支持(gsettings优先,环境变量次之)
+Influence: 配置代理后FTP挂载经代理中继访问，未配置时行为不变。
+Signed-off-by: wangrong <wangrong@uniontech.com>
+---
+ daemon/gvfsbackendftp.c | 120 ++++++++++++++++++++++++++++++++++++----
+ daemon/gvfsbackendftp.h |   3 +
+ daemon/gvfsftptask.c    |   8 ++-
+ 3 files changed, 119 insertions(+), 12 deletions(-)
+
+diff --git a/daemon/gvfsbackendftp.c b/daemon/gvfsbackendftp.c
+index ee38eb5..d9ce836 100644
+--- a/daemon/gvfsbackendftp.c
++++ b/daemon/gvfsbackendftp.c
+@@ -451,6 +451,7 @@ g_vfs_backend_ftp_finalize (GObject *object)
+   g_free (ftp->user);
+   g_free (ftp->password);
+   g_free (ftp->charset);
++  g_free (ftp->proxy_host);
+ 
+   g_clear_object (&ftp->server_identity);
+   g_clear_object (&ftp->certificate);
+@@ -512,7 +513,7 @@ do_mount (GVfsBackend *backend,
+   gboolean aborted, anonymous, break_on_fail;
+   GPasswordSave password_save = G_PASSWORD_SAVE_NEVER;
+   GNetworkAddress *addr;
+-  guint port, default_port;
++  guint default_port;
+ 
+ restart:
+   task.conn = g_vfs_ftp_connection_new (ftp->addr, ftp->socket_timeout, ftp->charset, task.cancellable, &task.error);
+@@ -552,7 +553,20 @@ restart:
+ 
+   addr = G_NETWORK_ADDRESS (ftp->addr);
+   g_object_ref (addr);
+-  port = g_network_address_get_port (addr);
++  /* When using an FTP proxy, ftp->addr points to the proxy server.
++   * keyring and mount_spec must reference the real FTP server. */
++  const char *real_host;
++  guint real_port;
++  if (ftp->proxy_host != NULL)
++    {
++      real_host = ftp->proxy_host;
++      real_port = ftp->proxy_port;
++    }
++  else
++    {
++      real_host = g_network_address_get_hostname (addr);
++      real_port = g_network_address_get_port (addr);
++    }
+   default_port = g_vfs_backend_ftp_default_port (ftp);
+   username = NULL;
+   password = NULL;
+@@ -566,12 +580,12 @@ restart:
+     }
+ 
+   if (g_vfs_keyring_lookup_password (ftp->user,
+-                                     g_network_address_get_hostname (addr),
++                                     real_host,
+                                      NULL,
+                                      "ftp",
+                                      NULL,
+                                      NULL,
+-                                     (port == default_port) ? 0 : port,
++                                     (real_port == default_port) ? 0 : real_port,
+                                      &username,
+                                      NULL,
+                                      &password) &&
+@@ -711,12 +725,12 @@ try_login:
+     {
+       /* a prompt was created, so we have to save the password */
+       g_vfs_keyring_save_password (ftp->user,
+-                                   g_network_address_get_hostname (addr),
++                                   real_host,
+                                    NULL,
+                                    "ftp",
+                                    NULL,
+                                    NULL,
+-                                   (port == default_port) ? 0 : port,
++                                   (real_port == default_port) ? 0 : real_port,
+                                    ftp->password,
+                                    password_save);
+       g_free (prompt);
+@@ -728,10 +742,10 @@ try_login:
+     mount_spec = g_mount_spec_new ("ftpis");
+   else
+     mount_spec = g_mount_spec_new ("ftp");
+-  g_mount_spec_set (mount_spec, "host", g_network_address_get_hostname (addr));
+-  if (port != default_port)
++  g_mount_spec_set (mount_spec, "host", real_host);
++  if (real_port != default_port)
+     {
+-      char *port_str = g_strdup_printf ("%u", port);
++      char *port_str = g_strdup_printf ("%u", real_port);
+       g_mount_spec_set (mount_spec, "port", port_str);
+       g_free (port_str);
+     }
+@@ -763,6 +777,62 @@ try_login:
+   g_vfs_ftp_task_done (&task);
+ }
+ 
++/* Resolve the FTP proxy to use: gsettings (org.gnome.system.proxy.ftp
++ * host/port) takes precedence, the ftp_proxy environment variable is
++ * the fallback. Returns TRUE and fills @proxy_host/@proxy_port when a
++ * proxy is configured, FALSE otherwise. @error is set when a
++ * configured value cannot be parsed.
++ */
++static gboolean
++resolve_ftp_proxy (gchar **proxy_host, guint *proxy_port, GError **error)
++{
++  GSettings *settings;
++  gchar *host = NULL;
++  guint port = 0;
++  const char *ftp_proxy_env;
++  gboolean found = FALSE;
++
++  /* 1. gsettings: org.gnome.system.proxy.ftp (empty host means disabled) */
++  settings = g_settings_new ("org.gnome.system.proxy.ftp");
++  host = g_settings_get_string (settings, "host");
++  port = g_settings_get_int (settings, "port");
++  g_object_unref (settings);
++
++  if (host != NULL && host[0] != '\0')
++    {
++      *proxy_host = host;
++      *proxy_port = port;
++      return TRUE;
++    }
++  g_free (host);
++
++  /* 2. environment variable ftp_proxy ([scheme://]host[:port]) */
++  ftp_proxy_env = g_getenv ("ftp_proxy");
++  if (ftp_proxy_env != NULL && ftp_proxy_env[0] != '\0')
++    {
++      GSocketConnectable *addr;
++
++      addr = g_network_address_parse_uri (ftp_proxy_env, 8080, error);
++      if (addr == NULL)
++        {
++          /* fall back to bare host:port (no scheme) */
++          g_clear_error (error);
++          addr = g_network_address_parse (ftp_proxy_env, 8080, error);
++        }
++      if (addr != NULL)
++        {
++          GNetworkAddress *naddr = G_NETWORK_ADDRESS (addr);
++
++          *proxy_host = g_strdup (g_network_address_get_hostname (naddr));
++          *proxy_port = g_network_address_get_port (naddr);
++          g_object_unref (addr);
++          found = TRUE;
++        }
++    }
++
++  return found;
++}
++
+ static gboolean
+ try_mount (GVfsBackend *backend,
+           GVfsJobMount *job,
+@@ -811,9 +881,39 @@ try_mount (GVfsBackend *backend,
+     ftp->host_display_name = g_strdup (host);
+   else
+     ftp->host_display_name = g_strdup_printf ("%s:%u", host, port);
++  /* FTP proxy support (gsettings first, ftp_proxy env as fallback):
++   * connect to the proxy server instead of the real FTP server and
++   * remember the real host/port for the USER user@host login command
++   * and for keyring/mount_spec bookkeeping.
++   */
++  {
++    gchar *proxy_host = NULL;
++    guint proxy_port;
++
++    if (resolve_ftp_proxy (&proxy_host, &proxy_port, &error))
++      {
++        ftp->proxy_host = g_strdup (host);
++        ftp->proxy_port = port;
++        g_object_unref (ftp->addr);
++        ftp->addr = g_network_address_new (proxy_host, proxy_port);
++      }
++    else if (error != NULL)
++      {
++        /* ftp_proxy env var set but unparseable */
++        g_vfs_job_failed_from_error (G_VFS_JOB (job), error);
++        goto quit;
++      }
++    g_free (proxy_host);
++  }
+ 
+   if (ftp->tls_mode != G_VFS_FTP_TLS_MODE_NONE)
+-    ftp->server_identity = g_object_ref (ftp->addr);
++    {
++      if (ftp->proxy_host != NULL)
++        /* TLS is negotiated with the real FTP server through the proxy tunnel */
++        ftp->server_identity = g_network_address_new (ftp->proxy_host, ftp->proxy_port);
++      else
++        ftp->server_identity = g_object_ref (ftp->addr);
++    }
+ 
+   if (g_mount_spec_get (mount_spec, "query") == NULL)
+     {
+diff --git a/daemon/gvfsbackendftp.h b/daemon/gvfsbackendftp.h
+index 1467616..ee4eebd 100644
+--- a/daemon/gvfsbackendftp.h
++++ b/daemon/gvfsbackendftp.h
+@@ -125,6 +125,9 @@ struct _GVfsBackendFtp
+   guint                 socket_timeout;
+   char *                charset;
+ 
++  /* FTP proxy (USER user@host style) */
++  char *                proxy_host;              /* real FTP server host when going through a proxy, or NULL */
++  guint                 proxy_port;              /* real FTP server port when going through a proxy */
+   GHashTable *          monitors;
+ };
+ 
+diff --git a/daemon/gvfsftptask.c b/daemon/gvfsftptask.c
+index 1b493e5..05e5a56 100644
+--- a/daemon/gvfsftptask.c
++++ b/daemon/gvfsftptask.c
+@@ -89,8 +89,12 @@ g_vfs_ftp_task_login (GVfsFtpTask *task,
+   if (g_vfs_ftp_task_is_in_error (task))
+     return FALSE;
+ 
+-  status = g_vfs_ftp_task_send (task, G_VFS_FTP_PASS_300,
+-                                "USER %s", username);
++  if (task->backend->proxy_host != NULL)
++    status = g_vfs_ftp_task_send (task, G_VFS_FTP_PASS_300,
++                                 "USER %s@%s", username, task->backend->proxy_host);
++  else
++    status = g_vfs_ftp_task_send (task, G_VFS_FTP_PASS_300,
++                                 "USER %s", username);
+  
+   if (G_VFS_FTP_RESPONSE_GROUP (status) == 3)
+     {
+-- 
+2.20.1
+
