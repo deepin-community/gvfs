@@ -1,3 +1,9 @@
+gvfs (1.54.2-2deepin8) unstable; urgency=medium
+
+  * chore: deprecate google backend and default it to off
+
+ -- wangrong <wangrong@uniontech.com>  Thu, 12 Nov 2026 15:53:34 +0800
+
 gvfs (1.54.2-2deepin7) unstable; urgency=medium
 
   * feat(ftp): add file and directory monitor support to FTP backend

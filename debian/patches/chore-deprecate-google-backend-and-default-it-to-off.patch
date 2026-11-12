@@ -1,0 +1,69 @@
+From 799f9ff1c95e831c88b6bab5f8e848e3e393865c Mon Sep 17 00:00:00 2001
+From: wangrong <wangrong@uniontech.com>
+Date: Thu, 12 Nov 2026 15:36:29 +0800
+Subject: [PATCH] chore: deprecate google backend and default it to off
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Mark the 'google' build option as deprecated and disable it by
+default. Conditionally include the google test and its deps only
+when enable_google is true.
+
+将 google 构建选项标记为 deprecated 并默认关闭，仅在启用
+enable_google 时条件包含 google 测试及其依赖。
+
+Log: 废弃 google 后端并默认关闭
+PMS: TASK-398327
+Influence: google 后端默认不再构建，需显式开启 enable_google 才会启用相关测试与依赖。
+Signed-off-by: wangrong <wangrong@uniontech.com>
+---
+ meson_options.txt |  2 +-
+ test/meson.build  | 11 ++++++++---
+ 2 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/meson_options.txt b/meson_options.txt
+index bbbe043..e1140e9 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -10,7 +10,7 @@ option('burn', type: 'boolean', value: false, description: 'build with burn back
+ option('cdda', type: 'boolean', value: true, description: 'build with cdda backend')
+ option('dnssd', type: 'boolean', value: true, description: 'build with dnssd backend')
+ option('goa', type: 'boolean', value: true, description: 'build with goa volume monitor')
+-option('google', type: 'boolean', value: true, description: 'build with google backend')
++option('google', type: 'boolean', value: false, description: 'build with google backend', deprecated: true)
+ option('gphoto2', type: 'boolean', value: true, description: 'build with gphoto2 backend and volume monitor')
+ option('http', type: 'boolean', value: true, description: 'build with http/dav backends')
+ option('mtp', type: 'boolean', value: true, description: 'build with mtp backend and volume monitor')
+diff --git a/test/meson.build b/test/meson.build
+index 7b6a941..5331e0b 100644
+--- a/test/meson.build
++++ b/test/meson.build
+@@ -47,16 +47,21 @@ if enable_devel_utils
+     'benchmark-posix-big-files',
+     'benchmark-posix-small-files',
+     'test-query-info-stream',
+-    'google'
+   ]
+ 
+   deps = [
+     gio_dep,
+     glib_dep,
+-    libgdata_dep,
+-    goa_dep
+   ]
+ 
++  if enable_google
++    tests += [ 'google' ]
++    deps += [
++      libgdata_dep,
++      goa_dep,
++    ]
++  endif
++
+   foreach test: tests
+     executable(
+       test,
+-- 
+2.51.0
+
